@@ -74,7 +74,7 @@ MATCHER_P(IncludesAddrType, addrtype, "") {
 }
 
 //VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetAddrInfoV4) {
-  //struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  //struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   //hints.ai_family = AF_INET;
   //AddrInfoResult result;
   //ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
@@ -86,7 +86,7 @@ MATCHER_P(IncludesAddrType, addrtype, "") {
 //}
 
 //VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetAddrInfoV6) {
-  //struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  //struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   //hints.ai_family = AF_INET6;
   //AddrInfoResult result;
   //ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
@@ -98,7 +98,7 @@ MATCHER_P(IncludesAddrType, addrtype, "") {
 //}
 
 //VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetAddrInfoUnspec) {
-  //struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  //struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   //hints.ai_family = AF_UNSPEC;
   //AddrInfoResult result;
   //ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);

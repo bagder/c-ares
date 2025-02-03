@@ -528,7 +528,7 @@ TEST_F(FileChannelTest, GetAddrInfoHostsPositive) {
                      "1.3.5.7  \n"
                      "::1    ipv6.com");
   EnvValue with_env("CARES_HOSTS", hostsfile.filename());
-  struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   AddrInfoResult result = {};
   hints.ai_family = AF_INET;
   hints.ai_flags = ARES_AI_CANONNAME | ARES_AI_ENVHOSTS | ARES_AI_NOSORT;
@@ -548,7 +548,7 @@ TEST_F(FileChannelTest, GetAddrInfoHostsSpaces) {
                      "1.3.5.7  \n"
                      "::1    ipv6.com");
   EnvValue with_env("CARES_HOSTS", hostsfile.filename());
-  struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   AddrInfoResult result = {};
   hints.ai_family = AF_INET;
   hints.ai_flags = ARES_AI_CANONNAME | ARES_AI_ENVHOSTS | ARES_AI_NOSORT;
@@ -568,7 +568,7 @@ TEST_F(FileChannelTest, GetAddrInfoHostsByALias) {
                      "1.3.5.7  \n"
                      "::1    ipv6.com");
   EnvValue with_env("CARES_HOSTS", hostsfile.filename());
-  struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   AddrInfoResult result = {};
   hints.ai_family = AF_INET;
   hints.ai_flags = ARES_AI_CANONNAME | ARES_AI_ENVHOSTS | ARES_AI_NOSORT;
@@ -588,7 +588,7 @@ TEST_F(FileChannelTest, GetAddrInfoHostsIPV6) {
                      "1.3.5.7  \n"
                      "::1    ipv6.com");
   EnvValue with_env("CARES_HOSTS", hostsfile.filename());
-  struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  struct ares_addrinfo_hints hints = {0, 0, 0, 0, 0};
   AddrInfoResult result = {};
   hints.ai_family = AF_INET6;
   hints.ai_flags = ARES_AI_CANONNAME | ARES_AI_ENVHOSTS | ARES_AI_NOSORT;

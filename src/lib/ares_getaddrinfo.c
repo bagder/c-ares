@@ -91,6 +91,7 @@ static const struct ares_addrinfo_hints default_hints = {
   AF_UNSPEC, /* ai_family */
   0,         /* ai_socktype */
   0,         /* ai_protocol */
+  0,         /* ai_query_id */
 };
 
 /* forward declarations */
@@ -351,6 +352,11 @@ static void end_hquery(struct host_query *hquery, ares_status_t status)
     /* Clean up what we have collected by so far. */
     ares_freeaddrinfo(hquery->ai);
     hquery->ai = NULL;
+  }
+
+  if (hquery->hints.ai_query_id && hquery->ai != NULL){
+    hquery->ai->qid_a = hquery->qid_a;
+    hquery->ai->qid_aaaa = hquery->qid_aaaa;
   }
 
   hquery->callback(hquery->arg, (int)status, (int)hquery->timeouts, hquery->ai);
