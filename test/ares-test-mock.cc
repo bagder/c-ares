@@ -2510,17 +2510,18 @@ struct CancelInCbData {
   ares_channel_t *channel;
   bool            done;
   size_t          cbs;
+  ares_status_t   status;
+  size_t          timeouts;
 };
-
 static void CancelChannelCallback(void *arg, ares_status_t status,
                                   size_t timeouts,
                                   const ares_dns_record_t *dnsrec)
 {
   CancelInCbData *data = static_cast<CancelInCbData *>(arg);
-  (void)status;
-  (void)timeouts;
   (void)dnsrec;
-  data->done = true;
+  data->done     = true;
+  data->status   = status;
+  data->timeouts = timeouts;
   data->cbs++;
   /* Reentrant cancel from within the callback.  Must not double-free. */
   ares_cancel(data->channel);
@@ -2873,31 +2874,177 @@ TEST_P(MockUDPChannelTest, CancelInDestroyCallbackNoUseAfterFree) {
 // Fixture with tries=1 so the first failure ends the query outright instead of
 // retrying it -- that is what drives execution into end_query()'s synchronous
 // (requeue==NULL) branch.
-// The tests below use the MockUDPSingleTryTest fixture defined above: tries=1,
-// so the first failure ends the query outright instead of retrying it, which
-// is what drives execution into end_query()'s synchronous (requeue==NULL)
-// branch.
 //
 
 // Connection-teardown route into the synchronous branch.  A malformed reply
 // makes process_answer() return EBADRESP, so handle_conn_error() tears the
 // connection down and ares_close_connection() requeues its queries with a NULL
 // requeue; with tries=1 the query is ended right there.  CVE-2026-33630 fixed
-// the deferred flush path only, so this one still double-freed.
-TEST_P(MockUDPSingleTryTest, CancelInCallbackConnTeardownNoDoubleFree) {
+// the deferred flush path only, so this one still double-freed.  It runs over
+// TCP because an unparsable UDP datagram is dropped instead of tearing the
+// connection down (see UnattributableMalformedDatagramDropped).
+TEST_P(MockTCPSingleTryStayOpenTest, CancelInCallbackConnTeardownNoDoubleFree)
+{
   /* Too short to be a DNS header, so it fails to parse. */
   std::vector<byte> malformed = {0x00, 0x00, 0x00, 0x00};
   ON_CALL(server_, OnRequest("www.google.com", T_A))
     .WillByDefault(SetReplyData(&server_, malformed));
-
   CancelInCbData data;
-  data.channel = channel_;
-  data.done    = false;
-  data.cbs     = 0;
+  data.channel  = channel_;
+  data.done     = false;
+  data.cbs      = 0;
+  data.status   = ARES_SUCCESS;
+  data.timeouts = 0;
   ares_query_dnsrec(channel_, "www.google.com", ARES_CLASS_IN, ARES_REC_TYPE_A,
                     CancelChannelCallback, &data, NULL);
   Process();
   EXPECT_TRUE(data.done);
+  /* Ended by the teardown, not by a timeout */
+  EXPECT_EQ((size_t)1, data.cbs);
+  EXPECT_EQ(ARES_EBADRESP, data.status);
+  EXPECT_EQ((size_t)0, data.timeouts);
+}
+
+// A UDP datagram that does not parse and cannot be matched to any query is
+// dropped like a reply to an unknown query id.  It used to tear the connection
+// down, which with tries=1 ended every query in flight on it with
+// ARES_EBADRESP and counted a failure against the server.
+TEST_P(MockUDPSingleTryTest, UnattributableMalformedDatagramDropped)
+{
+  /* Too short to be a DNS header, so it fails to parse. */
+  std::vector<byte> malformed = { 0x00, 0x00, 0x00, 0x00 };
+  ON_CALL(server_, OnRequest("www.bad.com", T_A))
+    .WillByDefault(SetReplyData(&server_, malformed));
+  DNSPacket rsp;
+  rsp.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.example.com", T_A))
+    .add_answer(new DNSARR("www.example.com", 100, { 1, 2, 3, 4 }));
+  ON_CALL(server_, OnRequest("www.example.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+  char *exp_server_string = ares_get_servers_csv(channel_);
+  ares_set_server_state_callback(channel_, ServerStateCallback,
+                                 &exp_server_string);
+  server_state_cb_success_count = 0;
+  server_state_cb_failure_count = 0;
+
+  HostResult bad;
+  ares_gethostbyname(channel_, "www.bad.com.", AF_INET, HostCallback, &bad);
+  HostResult good;
+  ares_gethostbyname(channel_, "www.example.com.", AF_INET, HostCallback,
+                     &good);
+  Process();
+  EXPECT_TRUE(good.done_);
+  EXPECT_EQ(ARES_SUCCESS, good.status_);
+  EXPECT_EQ(0, good.timeouts_);
+  std::stringstream ss;
+  ss << good.host_;
+  EXPECT_EQ("{'www.example.com' aliases=[] addrs=[1.2.3.4]}", ss.str());
+  EXPECT_TRUE(bad.done_);
+  EXPECT_EQ(ARES_ETIMEOUT, bad.status_);
+  /* Only the timeout of the bad query counts against the server */
+  EXPECT_EQ(1, server_state_cb_failure_count);
+  ares_free_string(exp_server_string);
+}
+
+// A UDP reply whose header and question match a query in flight, but whose
+// answer does not parse, fails that query with ARES_EBADRESP right away.  The
+// other query on the same connection still gets its answer.
+TEST_P(MockUDPSingleTryTest, AttributableMalformedReplyFailsOnlyItsQuery)
+{
+  /* Header and question for 0-0.1-1 A IN, then an A record cut off two bytes
+   * into its four bytes of RDATA.  The name has no letters, so DNS 0x20 cannot
+   * change its case and this reply still matches the question. */
+  std::vector<byte> truncated = { 0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00,
+                                  0x01, 0x00, 0x00, 0x00, 0x00, 0x03, '0',
+                                  '-',  '0',  0x03, '1',  '-',  '1',  0x00,
+                                  0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00,
+                                  0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C,
+                                  0x00, 0x04, 0x01, 0x02 };
+  ON_CALL(server_, OnRequest("0-0.1-1", T_A))
+    .WillByDefault(SetReplyData(&server_, truncated));
+  DNSPacket rsp;
+  rsp.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.example.com", T_A))
+    .add_answer(new DNSARR("www.example.com", 100, { 1, 2, 3, 4 }));
+  ON_CALL(server_, OnRequest("www.example.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+  char *exp_server_string = ares_get_servers_csv(channel_);
+  ares_set_server_state_callback(channel_, ServerStateCallback,
+                                 &exp_server_string);
+  server_state_cb_success_count = 0;
+  server_state_cb_failure_count = 0;
+
+  HostResult bad;
+  ares_gethostbyname(channel_, "0-0.1-1.", AF_INET, HostCallback, &bad);
+  HostResult good;
+  ares_gethostbyname(channel_, "www.example.com.", AF_INET, HostCallback,
+                     &good);
+  Process();
+  EXPECT_TRUE(bad.done_);
+  EXPECT_EQ(ARES_EBADRESP, bad.status_);
+  EXPECT_EQ(0, bad.timeouts_);
+  EXPECT_TRUE(good.done_);
+  EXPECT_EQ(ARES_SUCCESS, good.status_);
+  std::stringstream ss;
+  ss << good.host_;
+  EXPECT_EQ("{'www.example.com' aliases=[] addrs=[1.2.3.4]}", ss.str());
+  EXPECT_EQ(1, server_state_cb_failure_count);
+  ares_free_string(exp_server_string);
+}
+
+// A truncated UDP reply can be cut off in the middle of a record, so it does
+// not parse.  When its header and question match the query, it is treated like
+// a truncated reply that parses and the query is retried over TCP.
+TEST_P(MockUDPSingleTryTest, AttributableTruncatedReplyRetriesOverTCP)
+{
+  /* As in AttributableMalformedReplyFailsOnlyItsQuery, with TC set. */
+  std::vector<byte> truncated = { 0x00, 0x00, 0x83, 0x80, 0x00, 0x01, 0x00,
+                                  0x01, 0x00, 0x00, 0x00, 0x00, 0x03, '0',
+                                  '-',  '0',  0x03, '1',  '-',  '1',  0x00,
+                                  0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00,
+                                  0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C,
+                                  0x00, 0x04, 0x01, 0x02 };
+  DNSPacket         rspok;
+  rspok.set_response()
+    .add_question(new DNSQuestion("0-0.1-1", T_A))
+    .add_answer(new DNSARR("0-0.1-1", 100, { 1, 2, 3, 4 }));
+  EXPECT_CALL(server_, OnRequest("0-0.1-1", T_A))
+    .WillOnce(SetReplyData(&server_, truncated))
+    .WillOnce(SetReply(&server_, &rspok));
+
+  HostResult result;
+  ares_gethostbyname(channel_, "0-0.1-1.", AF_INET, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  EXPECT_TRUE(server_.LastRequestTCP());
+  std::stringstream ss;
+  ss << result.host_;
+  EXPECT_EQ("{'0-0.1-1' aliases=[] addrs=[1.2.3.4]}", ss.str());
+}
+
+// A message with QR clear is a query, not a response (RFC 1035 section
+// 4.1.1), even when its header and question match a query in flight.  If it
+// does not parse, it is dropped like any other unattributable datagram.
+TEST_P(MockUDPSingleTryTest, MalformedQueryMessageDropped)
+{
+  /* As in AttributableMalformedReplyFailsOnlyItsQuery, with QR clear. */
+  std::vector<byte> truncated = { 0x00, 0x00, 0x01, 0x80, 0x00, 0x01, 0x00,
+                                  0x01, 0x00, 0x00, 0x00, 0x00, 0x03, '0',
+                                  '-',  '0',  0x03, '1',  '-',  '1',  0x00,
+                                  0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00,
+                                  0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C,
+                                  0x00, 0x04, 0x01, 0x02 };
+  ON_CALL(server_, OnRequest("0-0.1-1", T_A))
+    .WillByDefault(SetReplyData(&server_, truncated));
+
+  HostResult result;
+  ares_gethostbyname(channel_, "0-0.1-1.", AF_INET, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ETIMEOUT, result.status_);
 }
 
 // Server-removal route into the same synchronous branch, which the
@@ -4860,6 +5007,108 @@ TEST_P(MockUDPChannelTest, DNSCookieSingle) {
   const unsigned char *returned_cookie = fetch_server_cookie(result.dnsrec_.dnsrec_, &len);
   EXPECT_EQ(len, server_cookie.size());
   EXPECT_TRUE(memcmp(server_cookie.data(), returned_cookie, len) == 0);
+}
+
+// Once the server has established DNS Cookies, a reply that does not parse
+// cannot have its Cookie checked, so it is dropped even when its header and
+// question match the query (RFC 7873 section 5.3).  It neither fails the query
+// nor counts against the server; the query times out and the retry succeeds.
+TEST_P(MockUDPChannelTest, DNSCookieMalformedReplyDropped)
+{
+  std::vector<byte> server_cookie = { 1, 2, 3, 4, 5, 6, 7, 8 };
+  DNSPacket         reply;
+  reply.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("0-0.1-1", T_A))
+    .add_answer(new DNSARR("0-0.1-1", 0x0100, { 0x01, 0x02, 0x03, 0x04 }))
+    .add_additional(new DNSOptRR(0, 0, 0, 1280, {}, server_cookie, false));
+  DNSPacket reply_ensurecookie;
+  reply_ensurecookie.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("0-0.1-1", T_A))
+    .add_answer(new DNSARR("0-0.1-1", 0x0100, { 0x01, 0x02, 0x03, 0x04 }))
+    .add_additional(new DNSOptRR(0, 0, 0, 1280, {}, server_cookie, true));
+  /* Header and question for 0-0.1-1 A IN, no OPT RR, then an A record cut
+   * off two bytes into its RDATA.  The name has no letters, so DNS 0x20
+   * cannot change its case. */
+  std::vector<byte> truncated = { 0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00,
+                                  0x01, 0x00, 0x00, 0x00, 0x00, 0x03, '0',
+                                  '-',  '0',  0x03, '1',  '-',  '1',  0x00,
+                                  0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00,
+                                  0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C,
+                                  0x00, 0x04, 0x01, 0x02 };
+
+  EXPECT_CALL(server_, OnRequest("0-0.1-1", T_A))
+    .WillOnce(SetReply(&server_, &reply))
+    .WillOnce(SetReplyData(&server_, truncated))
+    .WillOnce(SetReply(&server_, &reply_ensurecookie));
+
+  /* Establish that the server supports cookies */
+  QueryResult result1;
+  ares_query_dnsrec(channel_, "0-0.1-1", ARES_CLASS_IN, ARES_REC_TYPE_A,
+                    QueryCallback, &result1, NULL);
+  Process();
+  EXPECT_TRUE(result1.done_);
+  EXPECT_EQ(0, result1.timeouts_);
+
+  QueryResult result2;
+  ares_query_dnsrec(channel_, "0-0.1-1", ARES_CLASS_IN, ARES_REC_TYPE_A,
+                    QueryCallback, &result2, NULL);
+  Process();
+  EXPECT_TRUE(result2.done_);
+  EXPECT_EQ(ARES_SUCCESS, result2.status_);
+  /* The malformed reply was dropped, not taken as a failure */
+  EXPECT_EQ(1, result2.timeouts_);
+}
+
+// Whether a reply needs a Cookie is decided per query, as in
+// ares_cookie_validate(): a request sent without an OPT RR carries no Cookie,
+// so a matching reply that does not parse still fails that query right away,
+// even though the server supports Cookies.
+TEST_P(MockUDPChannelTest, DNSCookieMalformedReplyNoCookieRequest)
+{
+  std::vector<byte> server_cookie = { 1, 2, 3, 4, 5, 6, 7, 8 };
+  DNSPacket         reply;
+  reply.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("0-0.1-1", T_A))
+    .add_answer(new DNSARR("0-0.1-1", 0x0100, { 0x01, 0x02, 0x03, 0x04 }))
+    .add_additional(new DNSOptRR(0, 0, 0, 1280, {}, server_cookie, false));
+  /* As in DNSCookieMalformedReplyDropped */
+  std::vector<byte> truncated = { 0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00,
+                                  0x01, 0x00, 0x00, 0x00, 0x00, 0x03, '0',
+                                  '-',  '0',  0x03, '1',  '-',  '1',  0x00,
+                                  0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00,
+                                  0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C,
+                                  0x00, 0x04, 0x01, 0x02 };
+
+  EXPECT_CALL(server_, OnRequest("0-0.1-1", T_A))
+    .WillOnce(SetReply(&server_, &reply))
+    .WillRepeatedly(SetReplyData(&server_, truncated));
+
+  /* Establish that the server supports cookies */
+  QueryResult result1;
+  ares_query_dnsrec(channel_, "0-0.1-1", ARES_CLASS_IN, ARES_REC_TYPE_A,
+                    QueryCallback, &result1, NULL);
+  Process();
+  EXPECT_TRUE(result1.done_);
+  EXPECT_EQ(0, result1.timeouts_);
+
+  /* A request without an OPT RR, so without a Cookie */
+  ares_dns_record_t *dnsrec = NULL;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_create(&dnsrec, 0, ARES_FLAG_RD, ARES_OPCODE_QUERY,
+                                   ARES_RCODE_NOERROR));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_record_query_add(
+                            dnsrec, "0-0.1-1", ARES_REC_TYPE_A, ARES_CLASS_IN));
+  QueryResult result2;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_send_dnsrec(channel_, dnsrec, QueryCallback, &result2, NULL));
+  ares_dns_record_destroy(dnsrec);
+  Process();
+  EXPECT_TRUE(result2.done_);
+  EXPECT_EQ(ARES_EBADRESP, result2.status_);
+  EXPECT_EQ(0, result2.timeouts_);
 }
 
 TEST_P(MockUDPChannelTest, DNSCookieMissingAfterGood) {

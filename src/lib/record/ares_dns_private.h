@@ -60,6 +60,17 @@ const ares_dns_rr_t *ares_dns_get_opt_rr_const(const ares_dns_record_t *rec);
 void ares_dns_record_ttl_decrement(ares_dns_record_t *dnsrec,
                                    unsigned int       ttl_decrement);
 
+/*! Parse only the header and the question of a DNS message, ignoring the
+ *  resource records that follow.  Used to attribute a message that
+ *  ares_dns_parse() rejects to the query it answers.
+ *
+ *  \param[in]  buf     DNS message
+ *  \param[in]  buf_len Length of the message
+ *  \param[out] dnsrec  Header and question; free with ares_dns_record_destroy()
+ *  \return ARES_SUCCESS, ARES_ENOMEM, or the parse error */
+ares_status_t ares_dns_parse_question(const unsigned char *buf, size_t buf_len,
+                                      ares_dns_record_t **dnsrec);
+
 /* Same as ares_dns_write() but appends to an existing buffer object */
 ares_status_t ares_dns_write_buf(const ares_dns_record_t *dnsrec,
                                  ares_buf_t              *buf);

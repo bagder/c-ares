@@ -1731,6 +1731,53 @@ ares_status_t ares_dns_parse(const unsigned char *buf, size_t buf_len,
 
   status = ares_dns_parse_buf(parser, flags, dnsrec);
   ares_buf_destroy(parser);
+  return status;
+}
 
+ares_status_t ares_dns_parse_question(const unsigned char *buf, size_t buf_len,
+                                      ares_dns_record_t **dnsrec)
+{
+  ares_buf_t    *parser = NULL;
+  ares_status_t  status;
+  unsigned short qdcount;
+  unsigned short ancount;
+  unsigned short nscount;
+  unsigned short arcount;
+
+  if (dnsrec == NULL) {
+    return ARES_EFORMERR;
+  }
+
+  *dnsrec = NULL;
+
+  if (buf == NULL || buf_len == 0) {
+    return ARES_EFORMERR;
+  }
+
+  parser = ares_buf_create_const(buf, buf_len);
+  if (parser == NULL) {
+    return ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
+  }
+
+  status = ares_dns_parse_header(parser, 0, dnsrec, &qdcount, &ancount,
+                                 &nscount, &arcount);
+  if (status != ARES_SUCCESS) {
+    goto done;
+  }
+
+  /* Same restriction as ares_dns_parse_buf(): exactly one question */
+  if (qdcount != 1) {
+    status = ARES_EBADRESP;
+    goto done;
+  }
+
+  status = ares_dns_parse_qd(parser, *dnsrec);
+
+done:
+  if (status != ARES_SUCCESS) {
+    ares_dns_record_destroy(*dnsrec);
+    *dnsrec = NULL;
+  }
+  ares_buf_destroy(parser);
   return status;
 }

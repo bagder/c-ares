@@ -789,6 +789,15 @@ size_t ares_metrics_server_timeout(const ares_server_t  *server,
 
 ares_status_t ares_cookie_apply(ares_dns_record_t *dnsrec, ares_conn_t *conn,
                                 const ares_timeval_t *now);
+/*! Whether a reply to this query is only accepted with a valid DNS Cookie:
+ *  the request carried a Cookie and the server has shown it supports them.
+ *  This is the rule ares_cookie_validate() applies to a parsed reply.
+ *
+ *  \param[in] query Query in flight
+ *  \param[in] conn  Connection the query was sent on
+ *  \return ARES_TRUE if a reply without a valid Cookie would be dropped */
+ares_bool_t ares_cookie_expected(const ares_query_t *query,
+                                 const ares_conn_t  *conn);
 ares_status_t ares_cookie_validate(ares_query_t            *query,
                                    const ares_dns_record_t *dnsresp,
                                    ares_conn_t *conn, const ares_timeval_t *now,

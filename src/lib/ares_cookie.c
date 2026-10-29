@@ -373,6 +373,19 @@ ares_status_t ares_cookie_apply(ares_dns_record_t *dnsrec, ares_conn_t *conn,
                              c_len);
 }
 
+ares_bool_t ares_cookie_expected(const ares_query_t *query,
+                                 const ares_conn_t  *conn)
+{
+  size_t req_cookie_len;
+
+  if (ares_dns_cookie_fetch(query->query, &req_cookie_len) == NULL) {
+    return ARES_FALSE;
+  }
+
+  return conn->server->cookie.state == ARES_COOKIE_SUPPORTED ? ARES_TRUE
+                                                             : ARES_FALSE;
+}
+
 ares_status_t ares_cookie_validate(ares_query_t            *query,
                                    const ares_dns_record_t *dnsresp,
                                    ares_conn_t *conn, const ares_timeval_t *now,
