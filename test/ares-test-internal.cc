@@ -3124,6 +3124,41 @@ TEST_F(LibraryTest, InitSortlistCountOverflow) {
 }
 #endif
 
+TEST_F(LibraryTest, BufParseEmptyDnsBinstrAllocFail)
+{
+  const unsigned char wire[]   = { 0 };
+  unsigned char       sentinel = 42;
+  unsigned char      *out      = &sentinel;
+  size_t              len      = 99;
+  ares_buf_t         *buf      = ares_buf_create_const(wire, sizeof(wire));
+  ASSERT_NE(nullptr, buf);
+
+  SetAllocFail(2);  // Temporary buffer succeeds; finishing it fails.
+  EXPECT_EQ(ARES_ENOMEM,
+            ares_buf_parse_dns_binstr(buf, sizeof(wire), &out, &len));
+  EXPECT_EQ(&sentinel, out);
+  EXPECT_EQ((size_t)99, len);
+  EXPECT_EQ((size_t)1, ares_buf_get_position(buf));
+  ares_buf_destroy(buf);
+}
+
+TEST_F(LibraryTest, BufParseEmptyDnsBinstr)
+{
+  const unsigned char wire[] = { 0 };
+  unsigned char      *out    = nullptr;
+  size_t              len    = 99;
+  ares_buf_t         *buf    = ares_buf_create_const(wire, sizeof(wire));
+  ASSERT_NE(nullptr, buf);
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_buf_parse_dns_binstr(buf, sizeof(wire), &out, &len));
+  ASSERT_NE(nullptr, out);
+  EXPECT_EQ(0, out[0]);
+  EXPECT_EQ((size_t)0, len);
+  EXPECT_EQ((size_t)1, ares_buf_get_position(buf));
+  ares_free(out);
+  ares_buf_destroy(buf);
+}
+
 TEST_F(LibraryTest, BufMisuse) {
   EXPECT_EQ(NULL, ares_buf_create_const(NULL, 0));
   ares_buf_reclaim(NULL);
