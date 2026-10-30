@@ -1476,6 +1476,13 @@ static ares_status_t ares_dns_parse_rr(ares_buf_t *buf, unsigned int flags,
   type     = u16;
   raw_type = u16; /* Only used for raw rr data */
 
+  /* RFC 6891 section 6.1.1 restricts OPT to the additional section.
+   * Do not let a misplaced OPT change the extended RCODE on a later write. */
+  if (type == ARES_REC_TYPE_OPT && sect != ARES_SECTION_ADDITIONAL) {
+    status = ARES_EBADRESP;
+    goto done;
+  }
+
   /* Class */
   status = ares_buf_fetch_be16(buf, &u16);
   if (status != ARES_SUCCESS) {

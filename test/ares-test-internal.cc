@@ -2844,6 +2844,48 @@ TEST_F(LibraryTest, DNSRecordNSEC3EmptyFields) {
 }
 #endif /* !CARES_SYMBOL_HIDING */
 
+TEST_F(LibraryTest, DNSRecordRejectsMisplacedOpt)
+{
+  /* RFC 6891 section 6.1.1 permits OPT only in the additional section. */
+  const unsigned char packet_template[] = {
+    0x3e, 0xa7, 0x84, 0x00, /* DNS response header */
+    0x00, 0x01,             /* one question */
+    0x00, 0x00,             /* answer count */
+    0x00, 0x00,             /* authority count */
+    0x00, 0x00,             /* additional count */
+    0x03, 'w',  'w',  'w',  0x00,
+    0x00, 0x01, 0x00, 0x01, /* www, type A, class IN */
+    0x00,                   /* OPT owner = root */
+    0x00, 0x29,             /* OPT type */
+    0x08, 0x00,             /* UDP payload size */
+    0x01, 0x00, 0x00, 0x00, /* ext-RCODE 1, version 0, flags 0 */
+    0x00, 0x00              /* no RDATA */
+  };
+
+  for (int section = 0; section < 3; section++) {
+    std::vector<byte>  packet(packet_template,
+                              packet_template + sizeof(packet_template));
+    ares_dns_record_t *parsed = NULL;
+    ares_status_t      status;
+
+    /* Place the one OPT in answer, authority, then additional. */
+    packet[7 + 2 * section] = 1;
+    status = ares_dns_parse(packet.data(), packet.size(), 0, &parsed);
+    if (section == 2) {
+      ASSERT_EQ(ARES_SUCCESS, status);
+      ASSERT_NE(nullptr, parsed);
+      EXPECT_EQ(ARES_RCODE_BADSIG, ares_dns_record_get_rcode(parsed));
+      ares_dns_record_destroy(parsed);
+    } else {
+      EXPECT_EQ(ARES_EBADRESP, status) << "section " << section;
+      EXPECT_EQ(nullptr, parsed);
+      if (parsed != NULL) {
+        ares_dns_record_destroy(parsed);
+      }
+    }
+  }
+}
+
 TEST_F(LibraryTest, DNSRecordRejectsInvalidBinaryInput) {
   ares_dns_record_t *dnsrec = NULL;
   ares_dns_rr_t     *rr     = NULL;
