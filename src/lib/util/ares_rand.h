@@ -28,15 +28,12 @@
 
 #include "ares_rand_state.h"
 
-/*! Create a random state from the OS random source or the entropy file.
- *  Fails when no OS source is compiled in, CARES_RANDOM_FILE is configured but
- *  cannot be opened, and the build is not a fuzzing build.
+/*! Fill buf with len random bytes from the state.
  *
- *  \param[out] no_entropy  Set to ARES_TRUE when no entropy source could be
- *                          opened; the call then returns NULL
- *  \return new state, or NULL on failure
+ *  \param[in]  state  Random state from ares_init_rand_state_skip()
+ *  \param[out] buf    Buffer to fill
+ *  \param[in]  len    Number of bytes to write
  */
-ares_rand_state *ares_init_rand_state(ares_bool_t *no_entropy);
 void ares_rand_bytes(ares_rand_state *state, unsigned char *buf, size_t len);
 
 #endif

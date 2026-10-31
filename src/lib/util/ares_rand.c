@@ -272,11 +272,6 @@ static ares_rand_state *ares_init_rand_state_int(unsigned int skip_backends,
   return state;
 }
 
-ares_rand_state *ares_init_rand_state(ares_bool_t *no_entropy)
-{
-  return ares_init_rand_state_int(0, no_entropy);
-}
-
 ares_rand_state *ares_init_rand_state_skip(unsigned int skip_backends,
                                            ares_bool_t *no_entropy)
 {

@@ -256,6 +256,15 @@ error:
 int ares_init_options(ares_channel_t           **channelptr,
                       const struct ares_options *options, int optmask)
 {
+  return ares_init_options_int(channelptr, options, optmask, 0);
+}
+
+/* rand_skip is a mask of ARES_RAND_SKIP_* bits. Production passes 0; the
+ * tests use it to drive the no-entropy path. */
+int ares_init_options_int(ares_channel_t           **channelptr,
+                          const struct ares_options *options, int optmask,
+                          unsigned int rand_skip)
+{
   ares_channel_t *channel;
   ares_status_t   status     = ARES_SUCCESS;
   ares_bool_t     no_entropy = ARES_FALSE;
@@ -282,7 +291,7 @@ int ares_init_options(ares_channel_t           **channelptr,
   }
 
   /* Generate random key */
-  channel->rand_state = ares_init_rand_state(&no_entropy);
+  channel->rand_state = ares_init_rand_state_skip(rand_skip, &no_entropy);
   if (channel->rand_state == NULL) {
     /* No entropy source could be opened: report it, not as out of memory */
     status = no_entropy ? ARES_EFILE : ARES_ENOMEM;
@@ -397,6 +406,7 @@ int ares_init_options(ares_channel_t           **channelptr,
 done:
   if (status != ARES_SUCCESS) {
     ares_destroy(channel);
+    *channelptr = NULL;
     return (int)status;
   }
 

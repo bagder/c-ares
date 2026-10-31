@@ -42,15 +42,16 @@ typedef struct ares_rand_state ares_rand_state;
  *
  *  \param[in]  skip_backends  Mask of ARES_RAND_SKIP_* bits
  *  \param[out] no_entropy     Set to ARES_TRUE when only the RC4 fallback is
- *                             left and CARES_RANDOM_FILE is configured
+ *                             left, CARES_RANDOM_FILE is configured, and the
+ *                             build is not a fuzzing build
  *  \return new state, or NULL on failure
  */
 CARES_EXTERN ares_rand_state *
   ares_init_rand_state_skip(unsigned int skip_backends,
                             ares_bool_t *no_entropy);
 
-/*! Destroy a random state created by ares_init_rand_state() or
- *  ares_init_rand_state_skip(). Safe to call with NULL.
+/*! Destroy a random state created by ares_init_rand_state_skip(). Safe to call
+ *  with NULL.
  *
  *  \param[in] state  Random state to destroy
  */

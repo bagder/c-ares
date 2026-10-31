@@ -183,6 +183,34 @@ TEST_F(LibraryTest, DefaultQueryCacheNotSaved) {
   ares_destroy(channel);
 }
 
+#ifndef CARES_SYMBOL_HIDING
+/* ares_init_options_int() is internal, so this test is not built when symbol
+ * hiding would hide it. */
+TEST_F(LibraryTest, ChannelEntropyFailure)
+{
+  struct ares_options opts;
+  /* Start from a non-NULL value, so the NULL check below proves that the call
+   * wrote it */
+  ares_channel_t     *channel = reinterpret_cast<ares_channel_t *>(&opts);
+  memset(&opts, 0, sizeof(opts));
+#  if defined(CARES_RANDOM_FILE) && \
+    !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+  /* No OS source, and the configured entropy file cannot be opened */
+  EXPECT_EQ(ARES_EFILE,
+            ares_init_options_int(&channel, &opts, 0,
+                                  ARES_RAND_SKIP_OS | ARES_RAND_SKIP_FILE));
+  EXPECT_EQ(nullptr, channel);
+#  else
+  /* No entropy file is configured, or this is a fuzzing build: the RC4
+   * fallback is kept */
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_init_options_int(&channel, &opts, 0,
+                                  ARES_RAND_SKIP_OS | ARES_RAND_SKIP_FILE));
+  ares_destroy(channel);
+#  endif
+}
+#endif
+
 TEST_F(LibraryTest, ChannelAllocFail) {
   ares_channel_t *channel;
   for (int ii = 1; ii <= 25; ii++) {
