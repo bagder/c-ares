@@ -25,8 +25,9 @@ typedef struct ares_rand_state ares_rand_state;
  *  \param[out] no_entropy     Set to ARES_TRUE when no entropy source is left
  *  \return new state, or NULL on failure
  */
-CARES_EXTERN ares_rand_state *ares_init_rand_state_skip(unsigned int skip_backends,
-                                                        ares_bool_t *no_entropy);
+CARES_EXTERN ares_rand_state *
+  ares_init_rand_state_skip(unsigned int skip_backends,
+                            ares_bool_t *no_entropy);
 
 /*! Destroy a random state created by ares_init_rand_state() or
  *  ares_init_rand_state_skip(). Safe to call with NULL.
