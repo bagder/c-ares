@@ -29,7 +29,8 @@
 #include "ares_rand_state.h"
 
 /*! Create a random state from the OS random source or the entropy file.
- *  Fails when neither is available in a non-fuzzing build.
+ *  Fails when no OS source is compiled in, CARES_RANDOM_FILE is configured but
+ *  cannot be opened, and the build is not a fuzzing build.
  *
  *  \param[out] no_entropy  Set to ARES_TRUE when no entropy source could be
  *                          opened; the call then returns NULL

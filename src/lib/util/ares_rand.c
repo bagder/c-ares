@@ -253,16 +253,20 @@ static ares_rand_state *ares_init_rand_state_int(unsigned int skip_backends,
     return NULL;      /* LCOV_EXCL_LINE: UntestablePath */
   }
 
-  /* Fail closed when there is no OS random source and the entropy file cannot
-   * be opened.  The RC4 fallback is seeded from heap and stack addresses and
-   * the clock, so query IDs, DNS0x20 casing, and cookies drawn from it would be
-   * predictable.  Deterministic fuzzing builds keep the fallback. */
-#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+  /* Fail closed when there is no OS random source and the configured entropy
+   * file cannot be opened.  The RC4 fallback is seeded from heap and stack
+   * addresses and the clock, so query IDs, DNS0x20 casing, and cookies drawn
+   * from it would be predictable.  Builds with no entropy file configured keep
+   * the fallback, because there is no file to fail on.  Deterministic fuzzing
+   * builds keep it too. */
+#ifdef CARES_RANDOM_FILE
+#  ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
   if (state->type == ARES_RAND_RC4) {
     *no_entropy = ARES_TRUE;
     ares_free(state);
     return NULL;
   }
+#  endif
 #endif
 
   return state;

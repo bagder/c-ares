@@ -41,7 +41,8 @@ typedef struct ares_rand_state ares_rand_state;
  *  ARES_RAND_SKIP_* bits) as unavailable. Test seam for the fail-closed path.
  *
  *  \param[in]  skip_backends  Mask of ARES_RAND_SKIP_* bits
- *  \param[out] no_entropy     Set to ARES_TRUE when no entropy source is left
+ *  \param[out] no_entropy     Set to ARES_TRUE when only the RC4 fallback is
+ *                             left and CARES_RANDOM_FILE is configured
  *  \return new state, or NULL on failure
  */
 CARES_EXTERN ares_rand_state *

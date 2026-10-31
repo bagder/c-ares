@@ -1380,34 +1380,61 @@ TEST_F(LibraryTest, FreeCorruptData) {
   free(data);
 }
 
-TEST(LibraryInit, NoEntropySourceFailsClosed)
+#if defined(CARES_RANDOM_FILE)
+#  if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+TEST(LibraryInit, UnusableEntropyFileFailsClosed)
 {
   ares_bool_t      no_entropy = ARES_FALSE;
   ares_rand_state *state;
 
-  /* Only the RC4 fallback is left: the state must not be created */
+  /* No OS source and the configured entropy file cannot be opened: the state
+   * must not be created */
   state = ares_init_rand_state_skip(ARES_RAND_SKIP_OS | ARES_RAND_SKIP_FILE,
                                     &no_entropy);
   EXPECT_EQ(nullptr, state);
   EXPECT_EQ(ARES_TRUE, no_entropy);
 
-#if defined(CARES_RANDOM_FILE)
   /* Control: with only the OS source skipped, the entropy file still works.
-   * CARES_RANDOM_FILE is defined on every platform, but the file exists only
-   * on some (not on Windows), so run the control only when it can be opened. */
+   * The file exists only on some platforms (not on Windows), so run the
+   * control only when it can be opened. */
   {
     FILE *f = fopen(CARES_RANDOM_FILE, "rb");
     if (f != NULL) {
+      ares_rand_state *file_state;
       fclose(f);
       no_entropy = ARES_TRUE;
-      state      = ares_init_rand_state_skip(ARES_RAND_SKIP_OS, &no_entropy);
-      EXPECT_NE(nullptr, state);
+      file_state = ares_init_rand_state_skip(ARES_RAND_SKIP_OS, &no_entropy);
+      EXPECT_NE(nullptr, file_state);
       EXPECT_EQ(ARES_FALSE, no_entropy);
-      ares_destroy_rand_state(state);
+      ares_destroy_rand_state(file_state);
     }
   }
-#endif
 }
+#  endif
+#endif
+
+#if !defined(CARES_RANDOM_FILE)
+#  define ARES_TEST_KEEPS_FALLBACK 1
+#elif defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+#  define ARES_TEST_KEEPS_FALLBACK 1
+#endif
+
+#if defined(ARES_TEST_KEEPS_FALLBACK)
+TEST(LibraryInit, NoEntropyFileKeepsFallback)
+{
+  ares_bool_t      no_entropy = ARES_FALSE;
+  ares_rand_state *state;
+
+  /* Builds with no entropy file configured (for example the DOS makefiles),
+   * and deterministic fuzzing builds, keep the RC4 fallback */
+  state = ares_init_rand_state_skip(ARES_RAND_SKIP_OS | ARES_RAND_SKIP_FILE,
+                                    &no_entropy);
+  EXPECT_NE(nullptr, state);
+  EXPECT_EQ(ARES_FALSE, no_entropy);
+  ares_destroy_rand_state(state);
+}
+#endif
+#undef ARES_TEST_KEEPS_FALLBACK
 
 TEST(LibraryInit, StrdupFailures) {
   EXPECT_EQ(ARES_SUCCESS, ares_library_init(ARES_LIB_INIT_ALL));
