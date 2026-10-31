@@ -1392,12 +1392,20 @@ TEST(LibraryInit, NoEntropySourceFailsClosed)
   EXPECT_EQ(ARES_TRUE, no_entropy);
 
 #if defined(CARES_RANDOM_FILE)
-  /* Control: with only the OS source skipped, the entropy file still works */
-  no_entropy = ARES_TRUE;
-  state      = ares_init_rand_state_skip(ARES_RAND_SKIP_OS, &no_entropy);
-  EXPECT_NE(nullptr, state);
-  EXPECT_EQ(ARES_FALSE, no_entropy);
-  ares_destroy_rand_state(state);
+  /* Control: with only the OS source skipped, the entropy file still works.
+   * CARES_RANDOM_FILE is defined on every platform, but the file exists only
+   * on some (not on Windows), so run the control only when it can be opened. */
+  {
+    FILE *f = fopen(CARES_RANDOM_FILE, "rb");
+    if (f != NULL) {
+      fclose(f);
+      no_entropy = ARES_TRUE;
+      state      = ares_init_rand_state_skip(ARES_RAND_SKIP_OS, &no_entropy);
+      EXPECT_NE(nullptr, state);
+      EXPECT_EQ(ARES_FALSE, no_entropy);
+      ares_destroy_rand_state(state);
+    }
+  }
 #endif
 }
 
