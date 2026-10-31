@@ -233,21 +233,50 @@ static ares_bool_t ares_init_rand_engine(ares_rand_state *state)
   return ARES_TRUE; /* LCOV_EXCL_LINE: UntestablePath */
 }
 
-ares_rand_state *ares_init_rand_state(void)
+static ares_rand_state *ares_init_rand_state_int(unsigned int skip_backends,
+                                                 ares_bool_t *no_entropy)
 {
   ares_rand_state *state = NULL;
+
+  *no_entropy = ARES_FALSE;
 
   state = ares_malloc_zero(sizeof(*state));
   if (!state) {
     return NULL;
   }
 
+  /* Test seam: backends listed in skip_backends are treated as unavailable */
+  state->bad_backends = (ares_rand_backend)skip_backends;
+
   if (!ares_init_rand_engine(state)) {
     ares_free(state); /* LCOV_EXCL_LINE: UntestablePath */
     return NULL;      /* LCOV_EXCL_LINE: UntestablePath */
   }
 
+  /* Fail closed when there is no OS random source and the entropy file cannot
+   * be opened.  The RC4 fallback is seeded from heap and stack addresses and
+   * the clock, so query IDs, DNS0x20 casing, and cookies drawn from it would be
+   * predictable.  Deterministic fuzzing builds keep the fallback. */
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+  if (state->type == ARES_RAND_RC4) {
+    *no_entropy = ARES_TRUE;
+    ares_free(state);
+    return NULL;
+  }
+#endif
+
   return state;
+}
+
+ares_rand_state *ares_init_rand_state(ares_bool_t *no_entropy)
+{
+  return ares_init_rand_state_int(0, no_entropy);
+}
+
+ares_rand_state *ares_init_rand_state_skip(unsigned int skip_backends,
+                                           ares_bool_t *no_entropy)
+{
+  return ares_init_rand_state_int(skip_backends, no_entropy);
 }
 
 static void ares_clear_rand_state(ares_rand_state *state)

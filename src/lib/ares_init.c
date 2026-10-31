@@ -257,7 +257,8 @@ int ares_init_options(ares_channel_t           **channelptr,
                       const struct ares_options *options, int optmask)
 {
   ares_channel_t *channel;
-  ares_status_t   status = ARES_SUCCESS;
+  ares_status_t   status     = ARES_SUCCESS;
+  ares_bool_t     no_entropy = ARES_FALSE;
 
   if (ares_library_initialized() != ARES_SUCCESS) {
     return ARES_ENOTINITIALIZED; /* LCOV_EXCL_LINE: n/a on non-WinSock */
@@ -281,9 +282,10 @@ int ares_init_options(ares_channel_t           **channelptr,
   }
 
   /* Generate random key */
-  channel->rand_state = ares_init_rand_state();
+  channel->rand_state = ares_init_rand_state(&no_entropy);
   if (channel->rand_state == NULL) {
-    status = ARES_ENOMEM;
+    /* No entropy source could be opened: report it, not as out of memory */
+    status = no_entropy ? ARES_EFILE : ARES_ENOMEM;
     DEBUGF(fprintf(stderr, "Error: init_id_key failed: %s\n",
                    ares_strerror(status)));
     goto done;

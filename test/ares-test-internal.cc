@@ -51,6 +51,7 @@ extern "C" {
 #include "ares_punycode.h"
 #include "str/ares_idnamap.h"
 #include "dsa/ares_htable.h"
+#include "util/ares_rand.h"
 
 #ifdef HAVE_ARPA_INET_H
 #include <arpa/inet.h>
@@ -1377,6 +1378,27 @@ TEST_F(LibraryTest, FreeCorruptData) {
   ares_free_data(nullptr);
 
   free(data);
+}
+
+TEST(LibraryInit, NoEntropySourceFailsClosed)
+{
+  ares_bool_t      no_entropy = ARES_FALSE;
+  ares_rand_state *state;
+
+  /* Only the RC4 fallback is left: the state must not be created */
+  state = ares_init_rand_state_skip(ARES_RAND_SKIP_OS | ARES_RAND_SKIP_FILE,
+                                    &no_entropy);
+  EXPECT_EQ(nullptr, state);
+  EXPECT_EQ(ARES_TRUE, no_entropy);
+
+#if defined(CARES_RANDOM_FILE)
+  /* Control: with only the OS source skipped, the entropy file still works */
+  no_entropy = ARES_TRUE;
+  state      = ares_init_rand_state_skip(ARES_RAND_SKIP_OS, &no_entropy);
+  EXPECT_NE(nullptr, state);
+  EXPECT_EQ(ARES_FALSE, no_entropy);
+  ares_destroy_rand_state(state);
+#endif
 }
 
 TEST(LibraryInit, StrdupFailures) {
