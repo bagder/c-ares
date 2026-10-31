@@ -26,8 +26,7 @@
 #ifndef __ARES_RAND_H
 #define __ARES_RAND_H
 
-struct ares_rand_state;
-typedef struct ares_rand_state ares_rand_state;
+#include "ares_rand_state.h"
 
 /*! Create a random state from the OS random source or the entropy file.
  *  Fails when neither is available in a non-fuzzing build.
@@ -37,22 +36,6 @@ typedef struct ares_rand_state ares_rand_state;
  *  \return new state, or NULL on failure
  */
 ares_rand_state *ares_init_rand_state(ares_bool_t *no_entropy);
-
-/* Bits for ares_init_rand_state_skip(). They match ares_rand_backend in
- * ares_rand.c: the OS source and the entropy file. */
-#define ARES_RAND_SKIP_OS   (1U << 0)
-#define ARES_RAND_SKIP_FILE (1U << 1)
-
-/*! Test seam: as ares_init_rand_state(), but the backends in skip_backends
- *  (a mask of ARES_RAND_SKIP_* bits) are treated as unavailable.
- *
- *  \param[in]  skip_backends  Mask of ARES_RAND_SKIP_* bits
- *  \param[out] no_entropy     Set to ARES_TRUE when no entropy source is left
- *  \return new state, or NULL on failure
- */
-ares_rand_state *ares_init_rand_state_skip(unsigned int skip_backends,
-                                           ares_bool_t *no_entropy);
-void ares_destroy_rand_state(ares_rand_state *state);
 void ares_rand_bytes(ares_rand_state *state, unsigned char *buf, size_t len);
 
 #endif

@@ -51,7 +51,7 @@ extern "C" {
 #include "ares_punycode.h"
 #include "str/ares_idnamap.h"
 #include "dsa/ares_htable.h"
-#include "util/ares_rand.h"
+#include "ares_rand_state.h"
 
 #ifdef HAVE_ARPA_INET_H
 #include <arpa/inet.h>
