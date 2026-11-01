@@ -25,6 +25,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "ares_private.h"
+#include <assert.h>
 
 /*! A queued socket-state notification.  Holds the descriptor and the state,
  *  never the connection, so a queued entry cannot outlive what it refers to.
@@ -197,6 +198,11 @@ void ares_conn_sock_state_cb_update(ares_conn_t            *conn,
   ares_channel_t       *channel = conn->server->channel;
   ares_sock_state_msg_t msg;
   ares_bool_t           changed = ARES_FALSE;
+
+  /* Only reached inside a deferred-callback scope: the notification queued
+   * below is delivered by its outermost ares_deferred_cb_leave(), and without
+   * one it would wait for whatever library call came next. */
+  assert(channel->deferred_cb_depth > 0);
 
   if ((conn->state_flags & ARES_CONN_STATE_CBFLAGS) != flags) {
     changed = ARES_TRUE;

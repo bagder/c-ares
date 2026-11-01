@@ -106,6 +106,10 @@ static void invoke_server_state_cb(const ares_server_t *server,
   char                   *server_string;
   ares_server_state_msg_t msg;
 
+  /* Queued below and delivered by the outermost ares_deferred_cb_leave(), as
+   * in ares_conn_sock_state_cb_update(). */
+  assert(channel->deferred_cb_depth > 0);
+
   if (channel->server_state_cb == NULL) {
     return;
   }

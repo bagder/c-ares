@@ -79,6 +79,13 @@ void ares_close_connection(ares_conn_t *conn, ares_status_t requeue_status)
   server  = conn->server;
   channel = server->channel;
 
+  /* Every entry point that can get here brackets its work with
+   * ares_deferred_cb_enter()/ares_deferred_cb_leave(), so that what this
+   * unlinks stays readable for the frames still holding it and the
+   * notifications it queues are delivered once they have unwound.  One that
+   * does not is a bug, which the immediate reap at the end only softens. */
+  assert(channel->deferred_cb_depth > 0);
+
   /* Unlink from everything that can find this connection.  After this it is
    * unreachable by lookup, which is what stops anything new from picking it
    * up; anything that already holds it is handled by the deferral below. */
