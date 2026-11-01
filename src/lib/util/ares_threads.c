@@ -785,7 +785,7 @@ ares_status_t ares_queue_wait_empty(ares_channel_t *channel, int timeout_ms)
   }
 
   ares_thread_mutex_lock(channel->lock);
-  while (ares_llist_len(channel->all_queries)) {
+  while (ares_query_queue_count(channel)) {
     if (timeout_ms < 0) {
       ares_thread_cond_wait(channel->cond_empty, channel->lock);
     } else {
@@ -822,7 +822,7 @@ void ares_queue_notify_empty(ares_channel_t *channel)
   }
 
   /* We are guaranteed to be holding a channel lock already */
-  if (ares_llist_len(channel->all_queries)) {
+  if (ares_query_queue_count(channel)) {
     return;
   }
 

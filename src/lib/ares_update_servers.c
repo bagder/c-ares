@@ -803,6 +803,7 @@ ares_status_t ares_servers_update(ares_channel_t *channel,
   /* Removing servers closes their connections, which notifies.  Deliver
    * once this call is done rather than from inside the teardown. */
   ares_deferred_cb_enter(channel);
+  ares_query_queue_config_start(channel);
 
   /* Bumped before anything below can reach an application callback, so a
    * nested reconfiguration is distinguishable from our own work. */
@@ -876,6 +877,7 @@ ares_status_t ares_servers_update(ares_channel_t *channel,
   status = ARES_SUCCESS;
 
 done:
+  ares_query_queue_config_end(channel);
   ares_deferred_cb_leave(channel);
   return status;
 }

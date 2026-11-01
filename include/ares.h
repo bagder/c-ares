@@ -203,7 +203,9 @@ typedef enum {
   ARES_ESERVICE = 25, /* ares_getaddrinfo() was passed a text service name that
                        * is not recognized. introduced in 1.16.0 */
 
-  ARES_ENOSERVER = 26 /* No DNS servers were configured */
+  ARES_ENOSERVER  = 26, /* No DNS servers were configured */
+  ARES_EQUEUEFULL = 27, /* Query queue capacity was reached */
+  ARES_EBUSY      = 28  /* Channel has outstanding queries */
 } ares_status_t;
 
 typedef enum {
@@ -1227,12 +1229,37 @@ CARES_EXTERN ares_status_t ares_queue_wait_empty(ares_channel_t *channel,
                                                  int             timeout_ms);
 
 
-/*! Retrieve the total number of active queries pending answers from servers.
- *  Some c-ares requests may spawn multiple queries, such as ares_getaddrinfo()
- *  when using AF_UNSPEC, which will be reflected in this number.
+/*! Configure optional query scheduling on an idle channel.
+ * \param[in] channel Initialized channel.
+ * \param[in] max_active Maximum active transactions, or zero for no limit.
+ * \param[in] max_pending Maximum waiting transactions; requires max_active.
+ * \param[in] coalesce Merge identical outstanding transactions when true.
+ * \return ARES_SUCCESS, ARES_EFORMERR, ARES_EBUSY or ARES_ENOMEM.
+ */
+CARES_EXTERN ares_status_t ares_set_query_queue_options(ares_channel_t *channel,
+                                                        size_t      max_active,
+                                                        size_t      max_pending,
+                                                        ares_bool_t coalesce);
+
+/*! Read the query scheduling configuration.
+ * \param[in] channel Initialized channel.
+ * \param[out] max_active Active transaction limit.
+ * \param[out] max_pending Waiting transaction limit.
+ * \param[out] coalesce Whether outstanding transactions are merged.
+ * \return ARES_SUCCESS or ARES_EFORMERR for a NULL argument.
+ */
+CARES_EXTERN ares_status_t ares_get_query_queue_options(
+  const ares_channel_t *channel, size_t *max_active, size_t *max_pending,
+  ares_bool_t *coalesce);
+
+/*! Retrieve the total number of outstanding queries.
+ *  Some c-ares requests may spawn outstanding queries. When query scheduling
+ *  is enabled with ares_set_query_queue_options(3), this also counts queries
+ *  waiting to be sent, each caller sharing a merged query, and internal server
+ *  recovery probes.
  *
  *  \param[in] channel Initialized ares channel
- *  \return Number of active queries to servers
+ *  \return Number of outstanding queries
  */
 CARES_EXTERN size_t ares_queue_active_queries(const ares_channel_t *channel);
 

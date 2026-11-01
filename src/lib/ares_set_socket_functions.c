@@ -108,6 +108,8 @@ ares_status_t
     return ARES_EFORMERR;
   }
 
+  ares_channel_lock(channel);
+  ares_query_queue_invalidate(channel);
   memset(&channel->sock_funcs, 0, sizeof(channel->sock_funcs));
 
   /* Copy individually for ABI compliance.  memcpy() with a sizeof would do
@@ -116,6 +118,7 @@ ares_status_t
     if (funcs->asocket == NULL || funcs->aclose == NULL ||
         funcs->asetsockopt == NULL || funcs->aconnect == NULL ||
         funcs->arecvfrom == NULL || funcs->asendto == NULL) {
+      ares_channel_unlock(channel);
       return ARES_EFORMERR;
     }
     channel->sock_funcs.version         = funcs->version;
@@ -136,6 +139,7 @@ ares_status_t
 
 
   channel->sock_func_cb_data = user_data;
+  ares_channel_unlock(channel);
 
   return ARES_SUCCESS;
 }
@@ -585,7 +589,9 @@ void ares_set_socket_functions(ares_channel_t                     *channel,
     return;
   }
 
+  ares_channel_lock(channel);
   channel->legacy_sock_funcs         = funcs;
   channel->legacy_sock_funcs_cb_data = data;
   ares_set_socket_functions_ex(channel, &legacy_socket_functions, channel);
+  ares_channel_unlock(channel);
 }

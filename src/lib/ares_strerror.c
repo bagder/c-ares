@@ -83,6 +83,10 @@ const char *ares_strerror(int code)
       return "DNS query cancelled";
     case ARES_ESERVICE:
       return "Invalid service name or number";
+    case ARES_EQUEUEFULL:
+      return "Query queue capacity was reached";
+    case ARES_EBUSY:
+      return "Channel has outstanding queries";
     case ARES_ENOSERVER:
       return "No DNS servers were configured";
   }

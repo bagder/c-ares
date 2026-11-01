@@ -58,16 +58,20 @@ static void ares_query_dnsrec_cb(void *arg, ares_status_t status,
   ares_free(qquery);
 }
 
-ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
-                                ares_dns_class_t     dnsclass,
-                                ares_dns_rec_type_t  type,
-                                ares_callback_dnsrec callback, void *arg,
-                                unsigned short *qid)
+ares_status_t ares_query_nolock_ex(ares_channel_t *channel, const char *name,
+                                   ares_dns_class_t     dnsclass,
+                                   ares_dns_rec_type_t  type,
+                                   ares_callback_dnsrec callback, void *arg,
+                                   unsigned short *qid, size_t *handle)
 {
   ares_status_t            status;
   ares_dns_record_t       *dnsrec = NULL;
   ares_dns_flags_t         flags  = 0;
   ares_query_dnsrec_arg_t *qquery = NULL;
+
+  if (handle != NULL) {
+    *handle = 0;
+  }
 
   if (channel == NULL || name == NULL || callback == NULL) {
     /* LCOV_EXCL_START: DefensiveCoding */
@@ -77,6 +81,14 @@ ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
     }
     return status;
     /* LCOV_EXCL_STOP */
+  }
+
+  /* ares_send_nolock_ex() deliberately suppresses a nested destruction
+   * refusal callback to bound callback-started retry recursion. Refuse before
+   * allocating the callback wrapper that only that suppressed callback could
+   * otherwise release. */
+  if (!channel->sys_up && channel->in_shutdown_refusal) {
+    return ARES_EDESTRUCTION;
   }
 
   if (!(channel->flags & ARES_FLAG_NORECURSE)) {
@@ -105,11 +117,21 @@ ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
   qquery->arg      = arg;
 
   /* Send it off.  qcallback will be called when we get an answer. */
-  status = ares_send_nolock(channel, NULL, 0, dnsrec, ares_query_dnsrec_cb,
-                            qquery, qid);
+  status = ares_send_nolock_ex(channel, NULL, 0, dnsrec, ares_query_dnsrec_cb,
+                               qquery, qid, handle);
 
   ares_dns_record_destroy(dnsrec);
   return status;
+}
+
+ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
+                                ares_dns_class_t     dnsclass,
+                                ares_dns_rec_type_t  type,
+                                ares_callback_dnsrec callback, void *arg,
+                                unsigned short *qid)
+{
+  return ares_query_nolock_ex(channel, name, dnsclass, type, callback, arg, qid,
+                              NULL);
 }
 
 ares_status_t ares_query_dnsrec(ares_channel_t *channel, const char *name,

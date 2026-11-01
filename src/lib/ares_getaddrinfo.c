@@ -80,6 +80,9 @@ struct host_query {
   unsigned short        qid_a;     /* qid for A request */
   unsigned short        qid_aaaa;  /* qid for AAAA request */
 
+  size_t                handle_a;  /* logical caller handle for A request */
+  size_t handle_aaaa;              /* logical caller handle for AAAA request */
+
   size_t                remaining; /* number of DNS answers waiting for */
 
   /* Track nodata responses to possibly override final result */
@@ -484,6 +487,13 @@ static void terminate_retries(const struct host_query *hquery,
     return;
   }
 
+  if (channel->query_queue != NULL) {
+    size_t handle =
+      (qid == hquery->qid_a) ? hquery->handle_aaaa : hquery->handle_a;
+    ares_query_queue_stop_retry(channel, handle);
+    return;
+  }
+
   query = ares_htable_szvp_get_direct(channel->queries_by_qid, term_qid);
   if (query == NULL) {
     return;
@@ -786,22 +796,24 @@ static ares_bool_t next_dns_lookup(struct host_query *hquery)
   switch (hquery->hints.ai_family) {
     case AF_INET:
       hquery->remaining += 1;
-      ares_query_nolock(hquery->channel, name, ARES_CLASS_IN, ARES_REC_TYPE_A,
-                        host_callback, hquery, &hquery->qid_a);
+      ares_query_nolock_ex(hquery->channel, name, ARES_CLASS_IN,
+                           ARES_REC_TYPE_A, host_callback, hquery,
+                           &hquery->qid_a, &hquery->handle_a);
       break;
     case AF_INET6:
       hquery->remaining += 1;
-      ares_query_nolock(hquery->channel, name, ARES_CLASS_IN,
-                        ARES_REC_TYPE_AAAA, host_callback, hquery,
-                        &hquery->qid_aaaa);
+      ares_query_nolock_ex(hquery->channel, name, ARES_CLASS_IN,
+                           ARES_REC_TYPE_AAAA, host_callback, hquery,
+                           &hquery->qid_aaaa, &hquery->handle_aaaa);
       break;
     case AF_UNSPEC:
       hquery->remaining += 2;
-      ares_query_nolock(hquery->channel, name, ARES_CLASS_IN, ARES_REC_TYPE_A,
-                        host_callback, hquery, &hquery->qid_a);
-      ares_query_nolock(hquery->channel, name, ARES_CLASS_IN,
-                        ARES_REC_TYPE_AAAA, host_callback, hquery,
-                        &hquery->qid_aaaa);
+      ares_query_nolock_ex(hquery->channel, name, ARES_CLASS_IN,
+                           ARES_REC_TYPE_A, host_callback, hquery,
+                           &hquery->qid_a, &hquery->handle_a);
+      ares_query_nolock_ex(hquery->channel, name, ARES_CLASS_IN,
+                           ARES_REC_TYPE_AAAA, host_callback, hquery,
+                           &hquery->qid_aaaa, &hquery->handle_aaaa);
       break;
     default:
       break;

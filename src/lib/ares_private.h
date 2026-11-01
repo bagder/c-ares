@@ -51,6 +51,7 @@
 #include "ares_htable_strvp.h"
 #include "ares_htable_szvp.h"
 #include "ares_htable_asvp.h"
+#include "ares_htable_binvp.h"
 #include "ares_htable_dict.h"
 #include "ares_htable_vpvp.h"
 #include "ares_htable_vpstr.h"
@@ -139,6 +140,11 @@ W32_FUNC const char *_w32_GetHostsFile(void);
  * servers once it comes back online. */
 #define SERVER_CONSEC_FAILURES_CAP 16
 
+struct ares_query_queue;
+typedef struct ares_query_queue ares_query_queue_t;
+struct ares_query_group;
+typedef struct ares_query_group ares_query_group_t;
+
 struct ares_query;
 typedef struct ares_query ares_query_t;
 
@@ -172,6 +178,8 @@ struct ares_query {
 
   ares_callback_dnsrec callback;
   void                *arg;
+
+  ares_query_group_t  *queue_group;
 
   /* Query status */
   size_t        try_count; /* Number of times we tried this query already. */
@@ -239,6 +247,10 @@ struct ares_channeldata {
   /* random state to use when generating new ids and generating retry penalties
    */
   ares_rand_state     *rand_state;
+
+  /* Optional scheduling state; NULL preserves immediate scheduling. */
+  ares_query_queue_t  *query_queue;
+  size_t               query_queue_holds;
 
   /* All active queries in a single list */
   ares_llist_t        *all_queries;
@@ -583,6 +595,12 @@ ares_status_t ares_hosts_entry_to_addrinfo(const ares_hosts_entry_t *entry,
 
 /* Same as ares_query_dnsrec() except does not take a channel lock.  Use this
  * if a channel lock is already held */
+ares_status_t ares_query_nolock_ex(ares_channel_t *channel, const char *name,
+                                   ares_dns_class_t     dnsclass,
+                                   ares_dns_rec_type_t  type,
+                                   ares_callback_dnsrec callback, void *arg,
+                                   unsigned short *qid, size_t *handle);
+
 ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
                                 ares_dns_class_t     dnsclass,
                                 ares_dns_rec_type_t  type,
@@ -594,6 +612,22 @@ typedef enum {
   ARES_SEND_FLAG_NOCACHE = 1 << 0, /*!< Do not query the cache */
   ARES_SEND_FLAG_NORETRY = 1 << 1  /*!< Do not retry this query on error */
 } ares_send_flags_t;
+
+#include "ares_query_queue.h"
+
+ares_status_t
+  ares_send_direct_nolock(ares_channel_t *channel, ares_server_t *server,
+                          ares_send_flags_t        flags,
+                          const ares_dns_record_t *dnsrec, char *qcache_key,
+                          ares_callback_dnsrec callback, void *arg,
+                          unsigned short id, ares_query_group_t *group);
+
+ares_status_t ares_send_nolock_ex(ares_channel_t          *channel,
+                                  ares_server_t           *server,
+                                  ares_send_flags_t        flags,
+                                  const ares_dns_record_t *dnsrec,
+                                  ares_callback_dnsrec callback, void *arg,
+                                  unsigned short *qid, size_t *handle);
 
 /* Similar to ares_send_dnsrec() except does not take a channel lock, allows
  * specifying a particular server to use, and also flags controlling behavior.

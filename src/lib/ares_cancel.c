@@ -40,6 +40,15 @@ void ares_cancel(ares_channel_t *channel)
   ares_channel_lock(channel);
   ares_deferred_cb_enter(channel);
 
+  if (channel->query_queue != NULL) {
+    ares_query_queue_cancel(channel, ARES_ECANCELLED);
+    ares_check_cleanup_conns(channel);
+    ares_queue_notify_empty(channel);
+    ares_deferred_cb_leave(channel);
+    ares_channel_unlock(channel);
+    return;
+  }
+
   if (ares_llist_len(channel->all_queries) > 0) {
     ares_llist_node_t *node = NULL;
 

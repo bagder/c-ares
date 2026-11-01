@@ -84,6 +84,7 @@ MANPAGES = ares_cancel.3		\
   ares_free_hostent.3			\
   ares_free_string.3			\
   ares_freeaddrinfo.3			\
+  ares_get_query_queue_options.3		\
   ares_get_servers.3			\
   ares_get_servers_csv.3		\
   ares_get_servers_ports.3		\
@@ -134,6 +135,7 @@ MANPAGES = ares_cancel.3		\
   ares_set_local_ip6.3			\
   ares_set_pending_write_cb.3	\
   ares_set_query_enqueue_cb.3	\
+  ares_set_query_queue_options.3		\
   ares_set_server_state_callback.3	\
   ares_set_servers.3			\
   ares_set_servers_csv.3		\

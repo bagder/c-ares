@@ -1,0 +1,102 @@
+.\" Copyright (C) The c-ares project and its contributors
+.\" SPDX-License-Identifier: MIT
+.TH ARES_SET_QUERY_QUEUE_OPTIONS 3 "24 September 2026"
+.SH NAME
+ares_set_query_queue_options, ares_get_query_queue_options \- configure outgoing
+query scheduling and merging
+.SH SYNOPSIS
+.nf
+#include <ares.h>
+
+ares_status_t ares_set_query_queue_options(ares_channel_t *channel,
+                                            size_t max_active,
+                                            size_t max_pending,
+                                            ares_bool_t coalesce);
+
+ares_status_t ares_get_query_queue_options(const ares_channel_t *channel,
+                                            size_t *max_active,
+                                            size_t *max_pending,
+                                            ares_bool_t *coalesce);
+.fi
+.SH DESCRIPTION
+These functions configure optional transaction scheduling on an initialized
+channel. By default, both limits are zero and merging is disabled, preserving
+immediate query dispatch.
+.PP
+A positive \fImax_active\fP limits simultaneous user-initiated network
+transactions. Internal server recovery probes may run outside this limit so
+saturation cannot prevent server recovery. Additional distinct transactions
+wait in FIFO order, up to \fImax_pending\fP. Retries retain the original
+transaction's active slot. A waiting transaction begins its network timeout
+only when transmitted;
+these limits do not impose a maximum wall-clock wait in the queue.
+.PP
+The sum of the limits must not exceed 32768. A zero \fImax_active\fP requires a
+zero \fImax_pending\fP and disables the active limit. If merging alone is enabled,
+at most 32768 distinct transactions can be outstanding. A full queue rejects a
+new distinct transaction with \fBARES_EQUEUEFULL\fP through its callback and the
+status-returning query API. Matching followers and completed-cache hits do not
+consume another transaction slot. This is not a bound on total caller memory:
+each accepted follower still needs callback state.
+.PP
+With \fIcoalesce\fP set to \fBARES_TRUE\fP, identical active or waiting requests
+share one network transaction and its response. Equality compares the complete
+serialized DNS query and internal send policy, ignoring only the transaction ID.
+Name case, flags, EDNS data and record order are preserved. Changes to routing
+configuration exclude existing transactions from subsequent merging. Explicit
+server recovery probes are never merged with user requests.
+.PP
+Merging is independent of the completed-response cache. A follower joins the
+remaining lifetime of the existing transaction without restarting its deadline
+or retry budget. Its timeout count includes only timeouts observed after it
+joined. Each caller retains its own completion callback and retry disposition.
+.PP
+The optional query ID output is populated at admission with the reserved ID that
+will be used on the wire, even for waiting requests. Followers share that actual
+wire ID. Waiting reservations are not eligible to receive DNS responses until
+transmitted. Cache hits keep the existing synchronous completion behavior and do
+not allocate a transaction ID.
+.PP
+Callbacks can run before a query API returns. Completion claims each caller
+immediately before invoking its callback. If a callback calls \fBares_cancel(3)\fP,
+remaining unclaimed followers are cancelled along with other outstanding callers.
+Queries created by cancellation callbacks survive the outer cancellation, unless
+a nested cancellation explicitly cancels them. Channel destruction completes
+outstanding callers without promoting waiting work; it retains the restrictions
+documented by \fBares_destroy(3)\fP.
+.PP
+Configuration can only change while the channel has no outstanding callers and
+is not dispatching a completion or updating its server list. \fBares_dup(3)\fP
+copies this configuration but
+does not copy outstanding work. The older \fBares_save_options(3)\fP interface
+does not represent these settings; use the getter to retrieve them separately.
+The getter requires all three output pointers.
+.PP
+Some c-ares requests may spawn outstanding queries. When query scheduling is
+enabled, \fBares_queue_active_queries(3)\fP also counts queries waiting to be
+sent, each caller sharing a merged query, and internal server recovery probes.
+\fBares_queue_wait_empty(3)\fP waits for all such callers to finish.
+.SH RETURN VALUES
+.TP
+.B ARES_SUCCESS
+The configuration was set or retrieved.
+.TP
+.B ARES_EFORMERR
+A required pointer is NULL, a limit combination is invalid, or the boolean
+setting is invalid.
+.TP
+.B ARES_EBUSY
+Outstanding work, completion dispatch or a server-list update prevents
+reconfiguration.
+.TP
+.B ARES_ENOMEM
+Allocation of scheduling state failed. Existing configuration is preserved.
+.SH AVAILABILITY
+These functions were added in c-ares 1.35.0.
+.SH SEE ALSO
+.BR ares_send (3),
+.BR ares_query (3),
+.BR ares_queue (3),
+.BR ares_cancel (3),
+.BR ares_destroy (3),
+.BR ares_dup (3)

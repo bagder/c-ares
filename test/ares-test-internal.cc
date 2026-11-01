@@ -3794,6 +3794,285 @@ TEST_F(LibraryTest, HtableDict) {
   ares_htable_dict_destroy(h);
 }
 
+static void BinvpCountFree(void *val)
+{
+  if (val != nullptr) {
+    ++*static_cast<unsigned int *>(val);
+  }
+}
+
+TEST_F(LibraryTest, HtableBinvpBinaryKeys)
+{
+  ares_htable_binvp_t *h = ares_htable_binvp_create(BinvpCountFree);
+  ASSERT_NE(nullptr, h);
+  unsigned int        frees[5]       = {};
+  unsigned char       mutable_key[]  = { 'A', 0, 0xff };
+  const unsigned char original_key[] = { 'A', 0, 0xff };
+  const unsigned char other_key[]    = { 'A', 0, 0xfe };
+  const unsigned char lower_key[]    = { 'a', 0, 0xff };
+
+  ASSERT_TRUE(
+    ares_htable_binvp_insert(h, mutable_key, sizeof(mutable_key), &frees[0]));
+  mutable_key[0] = 'B';
+  EXPECT_EQ(&frees[0], ares_htable_binvp_get_direct(h, original_key,
+                                                    sizeof(original_key)));
+  EXPECT_EQ(nullptr,
+            ares_htable_binvp_get_direct(h, mutable_key, sizeof(mutable_key)));
+  ASSERT_TRUE(
+    ares_htable_binvp_insert(h, other_key, sizeof(other_key), &frees[1]));
+  ASSERT_TRUE(ares_htable_binvp_insert(h, original_key, 2, &frees[2]));
+  ASSERT_TRUE(
+    ares_htable_binvp_insert(h, lower_key, sizeof(lower_key), &frees[3]));
+  EXPECT_EQ(4U, ares_htable_binvp_num_keys(h));
+  EXPECT_EQ(&frees[1],
+            ares_htable_binvp_get_direct(h, other_key, sizeof(other_key)));
+  EXPECT_EQ(&frees[2], ares_htable_binvp_get_direct(h, original_key, 2));
+  EXPECT_EQ(&frees[3],
+            ares_htable_binvp_get_direct(h, lower_key, sizeof(lower_key)));
+
+  ASSERT_TRUE(
+    ares_htable_binvp_insert(h, original_key, sizeof(original_key), &frees[4]));
+  EXPECT_EQ(1U, frees[0]);
+  EXPECT_EQ(0U, frees[4]);
+  EXPECT_EQ(4U, ares_htable_binvp_num_keys(h));
+  EXPECT_EQ(&frees[4], ares_htable_binvp_get_direct(h, original_key,
+                                                    sizeof(original_key)));
+  EXPECT_TRUE(ares_htable_binvp_remove(h, original_key, sizeof(original_key)));
+  EXPECT_FALSE(ares_htable_binvp_remove(h, original_key, sizeof(original_key)));
+  EXPECT_EQ(1U, frees[4]);
+  ares_htable_binvp_destroy(h);
+  for (unsigned int count : frees) {
+    EXPECT_EQ(1U, count);
+  }
+}
+
+TEST_F(LibraryTest, HtableBinvpEmptyAndInvalidKeys)
+{
+  ares_htable_binvp_t *h = ares_htable_binvp_create(nullptr);
+  ASSERT_NE(nullptr, h);
+  unsigned char key[] = { 0 };
+  void         *out   = key;
+
+  EXPECT_FALSE(ares_htable_binvp_get(h, nullptr, 0, &out));
+  EXPECT_EQ(nullptr, out);
+  EXPECT_TRUE(ares_htable_binvp_insert(h, nullptr, 0, key));
+  EXPECT_EQ(key, ares_htable_binvp_get_direct(h, key, 0));
+  EXPECT_TRUE(ares_htable_binvp_insert(h, key, 0, nullptr));
+  EXPECT_EQ(1U, ares_htable_binvp_num_keys(h));
+  EXPECT_TRUE(ares_htable_binvp_get(h, nullptr, 0, &out));
+  EXPECT_EQ(nullptr, out);
+  EXPECT_TRUE(ares_htable_binvp_get(h, key, 0, nullptr));
+  EXPECT_EQ(nullptr, ares_htable_binvp_get_direct(h, nullptr, 0));
+  EXPECT_FALSE(ares_htable_binvp_insert(h, nullptr, 1, key));
+  out = key;
+  EXPECT_FALSE(ares_htable_binvp_get(h, nullptr, 1, &out));
+  EXPECT_EQ(nullptr, out);
+  EXPECT_FALSE(ares_htable_binvp_remove(h, nullptr, 1));
+  EXPECT_TRUE(ares_htable_binvp_insert(h, key, sizeof(key), key));
+  EXPECT_EQ(2U, ares_htable_binvp_num_keys(h));
+  EXPECT_TRUE(ares_htable_binvp_remove(h, key, 0));
+  EXPECT_FALSE(ares_htable_binvp_get(h, nullptr, 0, nullptr));
+  EXPECT_EQ(key, ares_htable_binvp_get_direct(h, key, sizeof(key)));
+  ares_htable_binvp_destroy(h);
+
+  EXPECT_FALSE(ares_htable_binvp_insert(nullptr, key, sizeof(key), key));
+  out = key;
+  EXPECT_FALSE(ares_htable_binvp_get(nullptr, key, sizeof(key), &out));
+  EXPECT_EQ(nullptr, out);
+  EXPECT_EQ(nullptr, ares_htable_binvp_get_direct(nullptr, key, sizeof(key)));
+  EXPECT_FALSE(ares_htable_binvp_remove(nullptr, key, sizeof(key)));
+  EXPECT_EQ(0U, ares_htable_binvp_num_keys(nullptr));
+  ares_htable_binvp_destroy(nullptr);
+}
+
+TEST_F(LibraryTest, HtableBinvpCollisions)
+{
+  ares_htable_binvp_t *h = ares_htable_binvp_create(BinvpCountFree);
+  ASSERT_NE(nullptr, h);
+  /* These keys have identical low seven FNV1a hash bits for any seed. They
+   * share a bucket in the initial 16-bucket table, but are distinct keys. */
+  const unsigned char keys[4][2] = {
+    { 0,    0    },
+    { 0x80, 0    },
+    { 0,    0x80 },
+    { 0x80, 0x80 }
+  };
+  /* Appending four zero bytes preserves the low four hash bits, so length
+   * comparison is also exercised within this same initial bucket. */
+  const unsigned char longer_key[] = { 0, 0, 0, 0, 0, 0 };
+  unsigned int        frees[5]     = {};
+  for (size_t i = 0; i < 4; i++) {
+    ASSERT_TRUE(
+      ares_htable_binvp_insert(h, keys[i], sizeof(keys[i]), &frees[i]));
+  }
+  ASSERT_TRUE(
+    ares_htable_binvp_insert(h, longer_key, sizeof(longer_key), &frees[4]));
+  EXPECT_EQ(5U, ares_htable_binvp_num_keys(h));
+  EXPECT_TRUE(ares_htable_binvp_remove(h, keys[1], sizeof(keys[1])));
+  for (size_t i = 0; i < 4; i++) {
+    EXPECT_EQ(i == 1 ? nullptr : &frees[i],
+              ares_htable_binvp_get_direct(h, keys[i], sizeof(keys[i])));
+  }
+  EXPECT_EQ(&frees[4],
+            ares_htable_binvp_get_direct(h, longer_key, sizeof(longer_key)));
+  ares_htable_binvp_destroy(h);
+  for (unsigned int count : frees) {
+    EXPECT_EQ(1U, count);
+  }
+}
+
+TEST_F(LibraryTest, HtableBinvpGrowth)
+{
+  ares_htable_binvp_t *h = ares_htable_binvp_create(BinvpCountFree);
+  ASSERT_NE(nullptr, h);
+  unsigned int frees[256] = {};
+  for (size_t i = 0; i < 256; i++) {
+    unsigned char key[] = { 0, static_cast<unsigned char>(i) };
+    ASSERT_TRUE(ares_htable_binvp_insert(h, key, sizeof(key), &frees[i]));
+  }
+  EXPECT_EQ(256U, ares_htable_binvp_num_keys(h));
+  for (size_t i = 0; i < 256; i++) {
+    unsigned char key[] = { 0, static_cast<unsigned char>(i) };
+    EXPECT_EQ(&frees[i], ares_htable_binvp_get_direct(h, key, sizeof(key)));
+  }
+  ares_htable_binvp_destroy(h);
+  for (unsigned int count : frees) {
+    EXPECT_EQ(1U, count);
+  }
+}
+
+TEST_F(LibraryTest, HtableBinvpCreateAllocFail)
+{
+  bool succeeded = false;
+  int  failures  = 0;
+  for (int nth = 1; nth <= 16; nth++) {
+    SCOPED_TRACE(nth);
+    SetAllocFail(nth);
+    ares_htable_binvp_t *h = ares_htable_binvp_create(nullptr);
+    ClearFails();
+    if (h != nullptr) {
+      ares_htable_binvp_destroy(h);
+      succeeded = true;
+      break;
+    }
+    failures++;
+  }
+  EXPECT_TRUE(succeeded);
+  EXPECT_GE(failures, 3);
+}
+
+TEST_F(LibraryTest, HtableBinvpInsertAllocFail)
+{
+  const unsigned char key[]     = { 1, 0, 2 };
+  bool                succeeded = false;
+  int                 failures  = 0;
+  for (int nth = 1; nth <= 16; nth++) {
+    SCOPED_TRACE(nth);
+    ares_htable_binvp_t *h = ares_htable_binvp_create(BinvpCountFree);
+    ASSERT_NE(nullptr, h);
+    unsigned int frees = 0;
+    SetAllocFail(nth);
+    ares_bool_t inserted =
+      ares_htable_binvp_insert(h, key, sizeof(key), &frees);
+    ClearFails();
+    EXPECT_EQ(0U, frees);
+    if (inserted) {
+      EXPECT_EQ(1U, ares_htable_binvp_num_keys(h));
+      EXPECT_EQ(&frees, ares_htable_binvp_get_direct(h, key, sizeof(key)));
+      succeeded = true;
+    } else {
+      EXPECT_EQ(0U, ares_htable_binvp_num_keys(h));
+      EXPECT_FALSE(ares_htable_binvp_get(h, key, sizeof(key), nullptr));
+      failures++;
+    }
+    ares_htable_binvp_destroy(h);
+    EXPECT_EQ(inserted ? 1U : 0U, frees);
+    if (succeeded) {
+      break;
+    }
+  }
+  EXPECT_TRUE(succeeded);
+  EXPECT_GE(failures, 4);
+}
+
+TEST_F(LibraryTest, HtableBinvpReplaceAllocFail)
+{
+  const unsigned char key[] = { 3, 0, 4 };
+  for (int nth = 1; nth <= 3; nth++) {
+    SCOPED_TRACE(nth);
+    ares_htable_binvp_t *h = ares_htable_binvp_create(BinvpCountFree);
+    ASSERT_NE(nullptr, h);
+    unsigned int old_frees = 0;
+    unsigned int new_frees = 0;
+    ASSERT_TRUE(ares_htable_binvp_insert(h, key, sizeof(key), &old_frees));
+    SetAllocFail(nth);
+    ares_bool_t inserted =
+      ares_htable_binvp_insert(h, key, sizeof(key), &new_frees);
+    ClearFails();
+    EXPECT_EQ(nth == 3 ? ARES_TRUE : ARES_FALSE, inserted);
+    EXPECT_EQ(1U, ares_htable_binvp_num_keys(h));
+    EXPECT_EQ(inserted ? &new_frees : &old_frees,
+              ares_htable_binvp_get_direct(h, key, sizeof(key)));
+    EXPECT_EQ(inserted ? 1U : 0U, old_frees);
+    EXPECT_EQ(0U, new_frees);
+    ares_htable_binvp_destroy(h);
+    EXPECT_EQ(1U, old_frees);
+    EXPECT_EQ(inserted ? 1U : 0U, new_frees);
+  }
+}
+
+TEST_F(DefaultChannelTest, QueryQueueExhaustsAndReusesIdsWithoutNetwork)
+{
+  AresDnsRecord query;
+
+  struct Result {
+    int           calls  = 0;
+    ares_status_t status = ARES_SUCCESS;
+  } rejected, admitted;
+
+  auto callback = [](void *arg, ares_status_t status, size_t,
+                     const ares_dns_record_t *) {
+    auto *result = static_cast<Result *>(arg);
+    result->calls++;
+    result->status = status;
+  };
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_set_query_queue_options(channel_, 1, 0, ARES_FALSE));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_create(&query.dnsrec_, 0, ARES_FLAG_RD,
+                                   ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_query_add(query.dnsrec_, "namespace.example",
+                                      ARES_REC_TYPE_A, ARES_CLASS_IN));
+  /* Reserve the namespace in memory only. Holding promotion guarantees that
+   * the successful admission below cannot open a socket or send a packet. */
+  channel_->query_queue_holds++;
+  for (size_t id = 0; id < 65536; id++) {
+    ASSERT_TRUE(ares_htable_szvp_insert(channel_->queries_by_qid, id, nullptr));
+  }
+  unsigned short id = 1234;
+  EXPECT_EQ(ARES_EQUEUEFULL, ares_send_dnsrec(channel_, query.dnsrec_, callback,
+                                              &rejected, &id));
+  EXPECT_EQ(1, rejected.calls);
+  EXPECT_EQ(ARES_EQUEUEFULL, rejected.status);
+  EXPECT_EQ(1234, id);
+  ASSERT_TRUE(ares_htable_szvp_remove(channel_->queries_by_qid, 73));
+  EXPECT_EQ(ARES_SUCCESS, ares_send_dnsrec(channel_, query.dnsrec_, callback,
+                                           &admitted, &id));
+  EXPECT_EQ(73, id);
+  EXPECT_EQ(0, admitted.calls);
+  EXPECT_EQ(size_t{ 0 }, ares_llist_len(channel_->all_queries));
+  EXPECT_FALSE(ares_htable_szvp_get(channel_->queries_by_qid, id, nullptr));
+  ares_cancel(channel_);
+  EXPECT_EQ(1, admitted.calls);
+  EXPECT_EQ(ARES_ECANCELLED, admitted.status);
+  for (size_t value = 0; value < 65536; value++) {
+    ares_htable_szvp_remove(channel_->queries_by_qid, value);
+  }
+  channel_->query_queue_holds--;
+  EXPECT_EQ(size_t{ 0 }, ares_queue_active_queries(channel_));
+}
+
 TEST_F(DefaultChannelTest, SaveInvalidChannel) {
   ares_slist_t *saved = channel_->servers;
   channel_->servers = NULL;

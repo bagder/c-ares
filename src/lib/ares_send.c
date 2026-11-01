@@ -32,17 +32,6 @@
 #endif
 #include "ares_nameser.h"
 
-static unsigned short generate_unique_qid(ares_channel_t *channel)
-{
-  unsigned short id;
-
-  do {
-    id = ares_generate_new_id(channel->rand_state);
-  } while (ares_htable_szvp_get(channel->queries_by_qid, id, NULL));
-
-  return id;
-}
-
 /* https://datatracker.ietf.org/doc/html/draft-vixie-dnsext-dns0x20-00 */
 static ares_status_t ares_apply_dns0x20(ares_channel_t    *channel,
                                         ares_dns_record_t *dnsrec)
@@ -105,72 +94,18 @@ done:
   return status;
 }
 
-ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
-                               ares_send_flags_t        flags,
-                               const ares_dns_record_t *dnsrec,
-                               ares_callback_dnsrec callback, void *arg,
-                               unsigned short *qid)
+ares_status_t
+  ares_send_direct_nolock(ares_channel_t *channel, ares_server_t *server,
+                          ares_send_flags_t        flags,
+                          const ares_dns_record_t *dnsrec, char *qcache_key,
+                          ares_callback_dnsrec callback, void *arg,
+                          unsigned short id, ares_query_group_t *group)
 {
-  ares_query_t      *query;
-  ares_timeval_t     now;
-  ares_status_t      status;
-  unsigned short     id          = generate_unique_qid(channel);
-  ares_dns_record_t *dnsrec_resp = NULL;
-  char              *qcache_key  = NULL;
-
-  /* A channel being destroyed accepts no new queries.  ares_destroy(3)
-   * documents that a callback must not add new requests to a channel being
-   * destroyed.  Refuse it, but still notify: ARES_EDESTRUCTION is documented
-   * in ares_query(3), ares_send(3), ares_search(3) and ares_getaddrinfo(3) as
-   * a status delivered to the callback, and every caller frees its own
-   * context from there.
-   *
-   * Not notified if we are already inside such a notification: an application
-   * whose callback starts a replacement lookup on every invocation would
-   * otherwise re-enter here from within the callback without bound and
-   * exhaust the stack.  At that depth it is already past the contract
-   * ares_destroy(3) documents. */
-  if (!channel->sys_up) {
-    if (!channel->in_shutdown_refusal) {
-      channel->in_shutdown_refusal = ARES_TRUE;
-      callback(arg, ARES_EDESTRUCTION, 0, NULL);
-      channel->in_shutdown_refusal = ARES_FALSE;
-    }
-    return ARES_EDESTRUCTION;
-  }
+  ares_query_t  *query;
+  ares_timeval_t now;
+  ares_status_t  status;
 
   ares_tvnow(&now);
-
-  if (ares_slist_len(channel->servers) == 0) {
-    callback(arg, ARES_ENOSERVER, 0, NULL);
-    return ARES_ENOSERVER;
-  }
-
-  /* Derive the cache key once, from the caller's request, and only when the
-   * cache is actually on.  The send path may mutate query->query afterwards
-   * -- the EDNS fallback strips its OPT record -- and a key derived from it
-   * later would not match.  ares_init_options() always creates the cache
-   * object, so a zero maximum TTL is what "off" means. */
-  if (channel->qcache_max_ttl > 0) {
-    qcache_key = ares_qcache_calc_key(dnsrec);
-    if (qcache_key == NULL) {
-      callback(arg, ARES_ENOMEM, 0, NULL); /* LCOV_EXCL_LINE: OutOfMemory */
-      return ARES_ENOMEM;                  /* LCOV_EXCL_LINE: OutOfMemory */
-    }
-  }
-
-  if (qcache_key != NULL && !(flags & ARES_SEND_FLAG_NOCACHE)) {
-    /* Check query cache */
-    status = ares_qcache_fetch(channel, &now, qcache_key, &dnsrec_resp);
-    if (status != ARES_ENOTFOUND) {
-      /* ARES_SUCCESS means we retrieved the cache, anything else is a critical
-       * failure, all result in termination */
-      ares_free(qcache_key);
-      callback(arg, status, 0, dnsrec_resp);
-      ares_dns_record_destroy(dnsrec_resp);
-      return status;
-    }
-  }
 
   /* Allocate space for query and allocated fields. */
   query = ares_malloc(sizeof(ares_query_t));
@@ -270,6 +205,10 @@ ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
     /* LCOV_EXCL_STOP */
   }
 
+  query->queue_group = group;
+  ares_query_queue_set_query(group, query);
+  ares_query_queue_track_direct(query);
+
   /* Perform the first query action. */
 
   /* Sending opens and writes to connections and can mark a server down, both
@@ -283,11 +222,92 @@ ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
   status = ares_send_query(server, query, &now);
   ares_deferred_cb_leave(channel);
 
-  if (status == ARES_SUCCESS && qid) {
-    *qid = id;
+  return status;
+}
+
+ares_status_t ares_send_nolock_ex(ares_channel_t          *channel,
+                                  ares_server_t           *server,
+                                  ares_send_flags_t        flags,
+                                  const ares_dns_record_t *dnsrec,
+                                  ares_callback_dnsrec callback, void *arg,
+                                  unsigned short *qid, size_t *handle)
+{
+  ares_timeval_t     now;
+  ares_status_t      status;
+  unsigned short     id;
+  ares_dns_record_t *response   = NULL;
+  char              *qcache_key = NULL;
+
+  if (handle != NULL) {
+    *handle = 0;
   }
 
+  /* Keep queue admission behind the same destruction refusal used by the
+   * legacy path. A retrying destruction callback must not recurse through
+   * scheduler admission without bound. */
+  if (!channel->sys_up) {
+    if (!channel->in_shutdown_refusal) {
+      channel->in_shutdown_refusal = ARES_TRUE;
+      callback(arg, ARES_EDESTRUCTION, 0, NULL);
+      channel->in_shutdown_refusal = ARES_FALSE;
+    }
+    return ARES_EDESTRUCTION;
+  }
+
+  if (ares_slist_len(channel->servers) == 0) {
+    callback(arg, ARES_ENOSERVER, 0, NULL);
+    return ARES_ENOSERVER;
+  }
+
+  ares_tvnow(&now);
+  /* Calculate the cache key once from the caller's original request. The send
+   * path can later mutate its private duplicate, such as while falling back
+   * from EDNS, but cache insertion must retain the original lookup key. */
+  if (channel->qcache_max_ttl > 0) {
+    qcache_key = ares_qcache_calc_key(dnsrec);
+    if (qcache_key == NULL) {
+      callback(arg, ARES_ENOMEM, 0, NULL); /* LCOV_EXCL_LINE: OutOfMemory */
+      return ARES_ENOMEM;                  /* LCOV_EXCL_LINE: OutOfMemory */
+    }
+  }
+  if (qcache_key != NULL && !(flags & ARES_SEND_FLAG_NOCACHE)) {
+    status = ares_qcache_fetch(channel, &now, qcache_key, &response);
+    if (status != ARES_ENOTFOUND) {
+      ares_free(qcache_key);
+      callback(arg, status, 0, response);
+      ares_dns_record_destroy(response);
+      return status;
+    }
+  }
+  if (channel->query_queue != NULL && server == NULL) {
+    return ares_query_queue_admit(channel, flags, dnsrec, qcache_key, callback,
+                                  arg, qid, handle);
+  }
+
+  /* Explicit-server recovery probes use one no-retry transaction outside the
+   * user active limit so a saturated queue cannot prevent server recovery. */
+  status = ares_query_queue_new_id(channel, &id);
+  if (status != ARES_SUCCESS) {
+    ares_free(qcache_key);
+    callback(arg, status, 0, NULL);
+    return status;
+  }
+  status = ares_send_direct_nolock(channel, server, flags, dnsrec, qcache_key,
+                                   callback, arg, id, NULL);
+  if (status == ARES_SUCCESS && qid != NULL) {
+    *qid = id;
+  }
   return status;
+}
+
+ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
+                               ares_send_flags_t        flags,
+                               const ares_dns_record_t *dnsrec,
+                               ares_callback_dnsrec callback, void *arg,
+                               unsigned short *qid)
+{
+  return ares_send_nolock_ex(channel, server, flags, dnsrec, callback, arg, qid,
+                             NULL);
 }
 
 ares_status_t ares_send_dnsrec(ares_channel_t          *channel,
@@ -363,7 +383,7 @@ size_t ares_queue_active_queries(const ares_channel_t *channel)
 
   ares_channel_lock(channel);
 
-  len = ares_llist_len(channel->all_queries);
+  len = ares_query_queue_count(channel);
 
   ares_channel_unlock(channel);
 

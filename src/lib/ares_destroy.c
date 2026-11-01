@@ -68,6 +68,11 @@ void ares_destroy(ares_channel_t *channel)
   /* Lock because callbacks will be triggered, and any system-generated
    * callbacks need to hold a channel lock. */
   ares_channel_lock(channel);
+  ares_deferred_cb_enter(channel);
+
+  if (channel->query_queue != NULL) {
+    ares_query_queue_cancel(channel, ARES_EDESTRUCTION);
+  }
 
   /* Destroy all queries.
    *
@@ -112,7 +117,6 @@ void ares_destroy(ares_channel_t *channel)
    * rely on being told about those closures so they can drop the descriptors
    * from their own event loop, so the notifications are still delivered here
    * rather than discarded -- just after the teardown instead of during it. */
-  ares_deferred_cb_enter(channel);
   ares_destroy_servers_state(channel);
   ares_deferred_cb_leave(channel);
 
@@ -150,6 +154,7 @@ void ares_destroy(ares_channel_t *channel)
     ares_free(channel->domains);
   }
 
+  ares_query_queue_destroy(channel);
   ares_llist_destroy(channel->all_queries);
   ares_llist_destroy(channel->queries_being_cancelled);
   ares_slist_destroy(channel->queries_by_timeout);

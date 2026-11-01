@@ -427,8 +427,11 @@ void ares_set_socket_callback(ares_channel_t           *channel,
   if (channel == NULL) {
     return;
   }
+  ares_channel_lock(channel);
+  ares_query_queue_invalidate(channel);
   channel->sock_create_cb      = cb;
   channel->sock_create_cb_data = data;
+  ares_channel_unlock(channel);
 }
 
 void ares_set_socket_configure_callback(ares_channel_t           *channel,
@@ -438,8 +441,11 @@ void ares_set_socket_configure_callback(ares_channel_t           *channel,
   if (channel == NULL || channel->optmask & ARES_OPT_EVENT_THREAD) {
     return;
   }
+  ares_channel_lock(channel);
+  ares_query_queue_invalidate(channel);
   channel->sock_config_cb      = cb;
   channel->sock_config_cb_data = data;
+  ares_channel_unlock(channel);
 }
 
 void ares_set_pending_write_cb(ares_channel_t       *channel,
