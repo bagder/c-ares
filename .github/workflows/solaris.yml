@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Solaris Build and Test
         id: solaris
-        uses: vmactions/solaris-vm@a11f407d3720a3717673d4194f19ee63b284977e # v1.4.0
+        uses: vmactions/solaris-vm@1c166978f5a2c1f87f1c9d4d8dd85ae3d1eff6f7 # v1.4.2
         with:
           envs: 'DIST BUILD_TYPE CMAKE_FLAGS CMAKE_TEST_FLAGS TEST_FILTER CXXFLAGS TEST_DEBUGGER'
           usesh: true
