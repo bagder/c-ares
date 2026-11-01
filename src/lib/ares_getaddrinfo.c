@@ -182,12 +182,16 @@ static unsigned short lookup_service(const char *service, int flags)
 {
   const char     *proto;
   struct servent *sep;
+  unsigned short  port;
 #ifdef HAVE_GETSERVBYNAME_R
   struct servent se;
   char           tmpbuf[4096];
 #endif
 
   if (service) {
+    if (ares_parse_port(service, &port, ARES_TRUE)) {
+      return port;
+    }
     if (flags & ARES_NI_UDP) {
       proto = "udp";
     } else if (flags & ARES_NI_SCTP) {
@@ -670,18 +674,15 @@ static void ares_getaddrinfo_int(ares_channel_t *channel, const char *name,
   }
 
   if (service) {
-    if (hints->ai_flags & ARES_AI_NUMERICSERV) {
-      if (!ares_parse_port(service, &port, ARES_TRUE)) {
+    if (!ares_parse_port(service, &port, ARES_TRUE)) {
+      if (hints->ai_flags & ARES_AI_NUMERICSERV) {
         callback(arg, ARES_ESERVICE, 0, NULL);
         return;
       }
-    } else {
       port = lookup_service(service, 0);
       if (!port) {
-        if (!ares_parse_port(service, &port, ARES_TRUE)) {
-          callback(arg, ARES_ESERVICE, 0, NULL);
-          return;
-        }
+        callback(arg, ARES_ESERVICE, 0, NULL);
+        return;
       }
     }
   }

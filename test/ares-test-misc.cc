@@ -381,6 +381,18 @@ static std::set<std::string> AddrInfoNodeStrings(const AddrInfoResult &result) {
   return out;
 }
 
+TEST_F(DefaultChannelTest, GetAddrinfoNumericService) {
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  hints.ai_family = AF_INET;
+  ares_getaddrinfo(channel_, "127.0.0.1", "56070", &hints, AddrInfoCallback,
+                   &result);
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  std::set<std::string> expected = {"127.0.0.1:56070"};
+  EXPECT_EQ(expected, AddrInfoNodeStrings(result));
+}
+
 // A NULL node/hostname with a service is a valid POSIX getaddrinfo() request;
 // it must not crash and, without ARES_AI_PASSIVE, returns loopback addresses.
 TEST_F(DefaultChannelTest, GetAddrinfoNullNameLoopback) {
