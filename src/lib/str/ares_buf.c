@@ -1552,12 +1552,19 @@ static ares_status_t
 
 done:
   if (status == ARES_SUCCESS && bin != NULL) {
-    size_t mylen = 0;
+    size_t         mylen = 0;
+    unsigned char *result;
     /* NOTE: we use ares_buf_finish_str() here as we guarantee NULL
      *       Termination even though we are technically returning binary data.
      */
-    *bin     = (unsigned char *)ares_buf_finish_str(binbuf, &mylen);
-    *bin_len = mylen;
+    result = (unsigned char *)ares_buf_finish_str(binbuf, &mylen);
+    if (result == NULL) {
+      ares_buf_destroy(binbuf); /* LCOV_EXCL_LINE: OutOfMemory */
+      status = ARES_ENOMEM;     /* LCOV_EXCL_LINE: OutOfMemory */
+    } else {
+      *bin     = result;
+      *bin_len = mylen;
+    }
   } else {
     ares_buf_destroy(binbuf);
   }

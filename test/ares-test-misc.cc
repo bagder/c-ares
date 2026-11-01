@@ -673,6 +673,19 @@ TEST_F(LibraryTest, ExpandString) {
                                (unsigned char**)&result, &len));
 }
 
+TEST_F(LibraryTest, ExpandEmptyStringAllocFail)
+{
+  const unsigned char wire[] = { 0 };
+  unsigned char      *result = nullptr;
+  long                len    = 99;
+
+  SetAllocFail(3);
+  EXPECT_EQ(ARES_ENOMEM,
+            ares_expand_string(wire, wire, sizeof(wire), &result, &len));
+  EXPECT_EQ(nullptr, result);
+  EXPECT_EQ(0, len);
+}
+
 TEST_F(LibraryTest, DNSMapping) {
   ares_dns_rec_type_t types[] = {
     ARES_REC_TYPE_A,
