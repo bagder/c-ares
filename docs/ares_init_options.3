@@ -39,6 +39,7 @@ struct ares_options {
   char *hosts_path;
   int udp_max_queries;
   int maxtimeout; /* in milliseconds */
+  int mintimeout; /* in milliseconds */
   unsigned int qcache_max_ttl; /* in seconds */
   ares_evsys_t evsys;
   struct ares_server_failover_options server_failover_opts;
@@ -180,6 +181,12 @@ resolv.conf or the RES_OPTIONS environment variable.  Valid range is 0-15.
 The upper bound for timeout between sequential retry attempts.  When retrying
 queries, the timeout is increased from the requested timeout parameter, this
 caps the value.
+.TP 18
+.B ARES_OPT_MINTIMEOUTMS
+.B int \fImintimeout\fP;
+.br
+The lower bound for the adaptively-computed retry timeout, in milliseconds.
+The default floor is 250ms.  Applied before the maximum bound.
 .TP 18
 .B ARES_OPT_UDP_PORT
 .B unsigned short \fIudp_port\fP;

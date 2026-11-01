@@ -134,6 +134,10 @@ static ares_status_t ares_save_options_nolock(const ares_channel_t *channel,
     options->maxtimeout = (int)channel->maxtimeout;
   }
 
+  if (channel->optmask & ARES_OPT_MINTIMEOUTMS) {
+    options->mintimeout = (int)channel->mintimeout;
+  }
+
   if (channel->optmask & ARES_OPT_UDP_PORT) {
     options->udp_port = channel->udp_port;
   }
@@ -361,6 +365,14 @@ ares_status_t ares_init_by_options(ares_channel_t            *channel,
       optmask &= ~(ARES_OPT_MAXTIMEOUTMS);
     } else {
       channel->maxtimeout = (size_t)options->maxtimeout;
+    }
+  }
+
+  if (optmask & ARES_OPT_MINTIMEOUTMS) {
+    if (options->mintimeout <= 0) {
+      optmask &= ~(ARES_OPT_MINTIMEOUTMS);
+    } else {
+      channel->mintimeout = (size_t)options->mintimeout;
     }
   }
 

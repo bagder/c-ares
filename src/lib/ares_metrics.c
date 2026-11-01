@@ -37,7 +37,8 @@
  * rails.
  *
  * Values:
- * - Minimum Timeout: 250ms (approximate RTT half-way around the globe)
+ * - Minimum Timeout: 250ms (approximate RTT half-way around the globe), can be
+ *   raised by ARES_OPT_MINTIMEOUTMS.
  * - Maximum Timeout: 5000ms (Recommended timeout in RFC 1123), can be reduced
  *   by ARES_OPT_MAXTIMEOUTMS, but otherwise the bound specified by the option
  *   caps the retry timeout.
@@ -211,6 +212,7 @@ size_t ares_metrics_server_timeout(const ares_server_t  *server,
   const ares_channel_t *channel = server->channel;
   ares_server_bucket_t  i;
   size_t                timeout_ms = 0;
+  size_t                min_timeout_ms;
   size_t                max_timeout_ms;
 
   for (i = 0; i < ARES_METRIC_COUNT; i++) {
@@ -247,8 +249,9 @@ size_t ares_metrics_server_timeout(const ares_server_t  *server,
   }
 
   /* don't go below lower bounds */
-  if (timeout_ms < MIN_TIMEOUT_MS) {
-    timeout_ms = MIN_TIMEOUT_MS;
+  min_timeout_ms = channel->mintimeout ? channel->mintimeout : MIN_TIMEOUT_MS;
+  if (timeout_ms < min_timeout_ms) {
+    timeout_ms = min_timeout_ms;
   }
 
   /* don't go above upper bounds */

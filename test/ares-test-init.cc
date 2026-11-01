@@ -91,6 +91,8 @@ TEST_F(LibraryTest, OptionsChannelInit) {
   opts.udp_port = 54;
   optmask |= ARES_OPT_MAXTIMEOUTMS;
   opts.maxtimeout = 10000;
+  optmask |= ARES_OPT_MINTIMEOUTMS;
+  opts.mintimeout = 500;
   optmask |= ARES_OPT_UDP_PORT;
   opts.tcp_port = 54;
   optmask |= ARES_OPT_TCP_PORT;
@@ -138,6 +140,7 @@ TEST_F(LibraryTest, OptionsChannelInit) {
   EXPECT_EQ(opts.tries, opts2.tries);
   EXPECT_EQ(opts.ndots, opts2.ndots);
   EXPECT_EQ(opts.maxtimeout, opts2.maxtimeout);
+  EXPECT_EQ(opts.mintimeout, opts2.mintimeout);
   EXPECT_EQ(opts.udp_port, opts2.udp_port);
   EXPECT_EQ(opts.tcp_port, opts2.tcp_port);
   EXPECT_EQ(1, opts2.nservers);  // Truncated by ARES_FLAG_PRIMARY

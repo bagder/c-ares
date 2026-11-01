@@ -201,6 +201,7 @@ struct ares_channeldata {
   size_t               tries;
   size_t               ndots;
   size_t               maxtimeout;                 /* in milliseconds */
+  size_t               mintimeout;                 /* in milliseconds */
   ares_bool_t          rotate;
   unsigned short       udp_port;                   /* stored in network order */
   unsigned short       tcp_port;                   /* stored in network order */
