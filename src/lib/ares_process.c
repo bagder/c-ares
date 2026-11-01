@@ -1363,11 +1363,12 @@ static ares_server_t *ares_random_server(ares_channel_t *channel)
 static void server_probe_cb(void *arg, ares_status_t status, size_t timeouts,
                             const ares_dns_record_t *dnsrec)
 {
-  (void)arg;
+  ares_server_t *server = arg;
+
+  server->probe_pending = ARES_FALSE;
   (void)status;
   (void)timeouts;
   (void)dnsrec;
-  /* Nothing to do, the logic internally will handle success/fail of this */
 }
 
 /* Determine if we should probe a downed server */
@@ -1421,11 +1422,12 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
 
   /* Enqueue an identical query onto the specified server without honoring
    * the cache or allowing retries.  We want to make sure it only attempts to
-   * use the server in question */
+   * use the server in question.  The callback owns clearing probe_pending so
+   * every terminal path, including cancellation, performs the same cleanup. */
   probe_server->probe_pending = ARES_TRUE;
   ares_send_nolock(channel, probe_server,
                    ARES_SEND_FLAG_NOCACHE | ARES_SEND_FLAG_NORETRY,
-                   query->query, server_probe_cb, NULL, NULL);
+                   query->query, server_probe_cb, probe_server, NULL);
 }
 
 static size_t ares_calc_query_timeout(const ares_query_t   *query,
@@ -1880,12 +1882,6 @@ static void end_query(ares_channel_t *channel, ares_server_t *server,
                       ares_query_t *query, ares_status_t status,
                       ares_dns_record_t *dnsrec, ares_array_t **requeue)
 {
-  /* If we were probing for the server to come back online, lets mark it as
-   * no longer being probed */
-  if (server != NULL) {
-    server->probe_pending = ARES_FALSE;
-  }
-
   ares_metrics_record(query, server, status, dnsrec);
 
   /* Delay calling the query callback */

@@ -5370,6 +5370,22 @@ class ServerFailoverOptsMultiMockTest
   struct ares_options opts_;
 };
 
+struct CancelProbeCallbackArg {
+  ares_channel_t *channel;
+  HostResult     *result;
+};
+
+static void CancelProbeCallback(void *arg, int status, int timeouts,
+                                struct hostent *hostent)
+{
+  CancelProbeCallbackArg *data = static_cast<CancelProbeCallbackArg *>(arg);
+
+  HostCallback(data->result, status, timeouts, hostent);
+  if (status == ARES_SUCCESS) {
+    ares_cancel(data->channel);
+  }
+}
+
 
 // Test case to trigger server failover behavior. We use a retry chance of
 // 100% and a retry delay so that we can test behavior reliably.
@@ -5585,6 +5601,69 @@ TEST_P(ServerFailoverOptsMultiMockTest, ProbeAfterProbeTimeout) {
   ares_gethostbyname(channel_, "www.example.com.", AF_INET, HostCallback, &result3);
   Process();
   EXPECT_TRUE(result3.done_);
+}
+
+// A probe is an ordinary internal query, but its completion also clears the
+// server's probe_pending flag.  Verify that cancelling an outstanding probe
+// performs that completion bookkeeping and permits a later probe.
+TEST_P(ServerFailoverOptsMultiMockTest, ProbeAfterCancel)
+{
+  std::vector<byte> nothing;
+  DNSPacket         failoverrsp;
+  failoverrsp.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("fail.example.com", T_A))
+    .add_answer(new DNSARR("fail.example.com", 100, { 2, 3, 4, 5 }));
+  DNSPacket cancelrsp;
+  cancelrsp.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("cancel-probe.example.com", T_A))
+    .add_answer(new DNSARR("cancel-probe.example.com", 100, { 2, 3, 4, 5 }));
+  DNSPacket reprobersp;
+  reprobersp.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("reprobe.example.com", T_A))
+    .add_answer(new DNSARR("reprobe.example.com", 100, { 2, 3, 4, 5 }));
+
+  // Mark server #0 failed while allowing the request to complete on #1.
+  EXPECT_CALL(*servers_[0], OnRequest("fail.example.com", T_A))
+    .WillOnce(SetReplyData(servers_[0].get(), nothing));
+  EXPECT_CALL(*servers_[1], OnRequest("fail.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &failoverrsp));
+  HostResult failover_result;
+  ares_gethostbyname(channel_, "fail.example.com.", AF_INET, HostCallback,
+                     &failover_result);
+  Process();
+  EXPECT_TRUE(failover_result.done_);
+
+  ares_sleep_time(SERVER_FAILOVER_RETRY_DELAY +
+                  (SERVER_FAILOVER_RETRY_DELAY / 10));
+
+  // The request succeeds on #1 while an unanswered probe is sent to #0.
+  // Cancelling from the request callback leaves only that probe to cancel.
+  EXPECT_CALL(*servers_[1], OnRequest("cancel-probe.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &cancelrsp));
+  EXPECT_CALL(*servers_[0], OnRequest("cancel-probe.example.com", T_A))
+    .WillOnce(SetReplyData(servers_[0].get(), nothing));
+  HostResult             cancel_result;
+  CancelProbeCallbackArg cancel_arg = { channel_, &cancel_result };
+  ares_gethostbyname(channel_, "cancel-probe.example.com.", AF_INET,
+                     CancelProbeCallback, &cancel_arg);
+  Process();
+  EXPECT_TRUE(cancel_result.done_);
+  EXPECT_EQ(ARES_SUCCESS, cancel_result.status_);
+
+  // Server #0 is still failed and eligible for probing.  It should receive a
+  // new probe if cancellation cleared probe_pending for the previous one.
+  EXPECT_CALL(*servers_[1], OnRequest("reprobe.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &reprobersp));
+  EXPECT_CALL(*servers_[0], OnRequest("reprobe.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &reprobersp));
+  HostResult reprobe_result;
+  ares_gethostbyname(channel_, "reprobe.example.com.", AF_INET, HostCallback,
+                     &reprobe_result);
+  Process();
+  EXPECT_TRUE(reprobe_result.done_);
 }
 
 class ServerRecoveryMultiMockTest
