@@ -914,23 +914,22 @@ static ares_bool_t ares_hosts_expired(const char              *filename,
 static ares_status_t ares_hosts_path(const ares_channel_t *channel,
                                      ares_bool_t use_env, char **path)
 {
-  char *path_hosts = NULL;
+  char       *path_hosts = NULL;
+  const char *env_hosts  = NULL;
 
   *path = NULL;
 
-  if (channel->hosts_path) {
-    path_hosts = ares_strdup(channel->hosts_path);
+  if (use_env && !(channel->flags & ARES_FLAG_NOENV)) {
+    env_hosts = ares_getenv("CARES_HOSTS");
+  }
+
+  if (env_hosts) {
+    path_hosts = ares_strdup(env_hosts);
     if (!path_hosts) {
       return ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
     }
-  }
-
-  if (use_env) {
-    if (path_hosts) {
-      ares_free(path_hosts);
-    }
-
-    path_hosts = ares_strdup(getenv("CARES_HOSTS"));
+  } else if (channel->hosts_path) {
+    path_hosts = ares_strdup(channel->hosts_path);
     if (!path_hosts) {
       return ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
     }

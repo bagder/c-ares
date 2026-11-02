@@ -1308,6 +1308,31 @@ TEST_F(LibraryTest, QcacheKeyDistinguishesQuestions) {
   }
 }
 
+#  ifndef WIN32
+TEST_F(LibraryTest, HostAliasIgnoredWithNoEnv)
+{
+  ares_channel_t *channel = nullptr;
+  char           *alias   = nullptr;
+  TempFile        aliases("www www.example.com\n");
+  EnvValue        with_env("HOSTALIASES", aliases.filename());
+
+  EXPECT_EQ(ARES_SUCCESS, ares_init(&channel));
+
+  /* HOSTALIASES is honored by default */
+  EXPECT_EQ(ARES_SUCCESS, ares_lookup_hostaliases(channel, "www", &alias));
+  EXPECT_STREQ("www.example.com", alias);
+  ares_free(alias);
+  alias = nullptr;
+
+  /* ... but not with ARES_FLAG_NOENV */
+  channel->flags |= ARES_FLAG_NOENV;
+  EXPECT_EQ(ARES_ENOTFOUND, ares_lookup_hostaliases(channel, "www", &alias));
+  EXPECT_EQ(nullptr, alias);
+
+  ares_destroy(channel);
+}
+#  endif
+
 #endif /* !CARES_SYMBOL_HIDING */
 
 TEST_F(LibraryTest, InetPtoN) {
@@ -1394,6 +1419,51 @@ TEST_F(LibraryTest, StrdupFailures) {
 }
 
 #ifndef WIN32
+TEST_F(FileChannelTest, GetAddrInfoEnvHostsUnset)
+{
+  TempFile                   hostsfile("1.2.3.4 example.com");
+  struct ares_addrinfo_hints hints = { 0, 0, 0, 0 };
+  hints.ai_family                  = AF_INET;
+  hints.ai_flags                   = ARES_AI_ENVHOSTS | ARES_AI_NOSORT;
+
+  /* With CARES_HOSTS unset, ARES_AI_ENVHOSTS falls back to the configured
+   * hosts file rather than failing the lookup with ARES_ENOMEM */
+  unsetenv("CARES_HOSTS");
+  channel_->hosts_path = ares_strdup(hostsfile.filename());
+
+  AddrInfoResult result = {};
+  ares_getaddrinfo(channel_, "example.com", NULL, &hints, AddrInfoCallback,
+                   &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  std::stringstream ss;
+  ss << result.ai_;
+  EXPECT_EQ("{addr=[1.2.3.4]}", ss.str());
+}
+
+TEST_F(FileChannelTest, GetAddrInfoEnvHostsIgnoredWithNoEnv)
+{
+  TempFile                   envhosts("1.2.3.4 example.com");
+  TempFile                   cfghosts("5.6.7.8 example.com");
+  EnvValue                   with_env("CARES_HOSTS", envhosts.filename());
+  struct ares_addrinfo_hints hints = { 0, 0, 0, 0 };
+  hints.ai_family                  = AF_INET;
+  hints.ai_flags                   = ARES_AI_ENVHOSTS | ARES_AI_NOSORT;
+
+  channel_->hosts_path  = ares_strdup(cfghosts.filename());
+  channel_->flags      |= ARES_FLAG_NOENV;
+
+  AddrInfoResult result = {};
+  ares_getaddrinfo(channel_, "example.com", NULL, &hints, AddrInfoCallback,
+                   &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  std::stringstream ss;
+  ss << result.ai_;
+  EXPECT_EQ("{addr=[5.6.7.8]}", ss.str());
+}
+
 TEST_F(FileChannelTest, GetAddrInfoHostsReplacedWithOlderMtime)
 {
   TempFile                   hostsfile("1.2.3.4 example.com");

@@ -138,6 +138,16 @@ query name.  Integrators need to ensure they treat DNS name responses as
 case-insensitive.  In rare circumstances this may cause the inability to lookup
 certain domains if the upstream server or the authoritative server for the
 domain is non-compliant.
+.TP 23
+.B ARES_FLAG_NOENV
+Do not read any configuration from environment variables: \fILOCALDOMAIN\fP
+and \fIRES_OPTIONS\fP are not applied, \fIHOSTALIASES\fP is not honored, and
+\fICARES_HOSTS\fP is ignored even when \fIARES_AI_ENVHOSTS\fP is requested.
+Useful for applications that want their resolver configuration to come only
+from system configuration and explicitly set options.  Regardless of this
+flag, these environment variables are always ignored when the process is
+running setuid or setgid, where available (\fIsecure_getenv(3)\fP or
+\fIissetugid(2)\fP).
 .RE
 .TP 18
 .B ARES_OPT_TIMEOUT

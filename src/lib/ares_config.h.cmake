@@ -121,6 +121,12 @@
 /* Define to 1 if you have the getenv function. */
 #cmakedefine HAVE_GETENV 1
 
+/* Define to 1 if you have the secure_getenv function. */
+#cmakedefine HAVE_SECURE_GETENV 1
+
+/* Define to 1 if you have the issetugid function. */
+#cmakedefine HAVE_ISSETUGID 1
+
 /* Define to 1 if you have the gethostname function. */
 #cmakedefine HAVE_GETHOSTNAME 1
 

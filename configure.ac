@@ -575,6 +575,8 @@ AC_CHECK_DECL(closesocket,     [AC_DEFINE([HAVE_CLOSESOCKET],       1, [Define t
 AC_CHECK_DECL(CloseSocket,     [AC_DEFINE([HAVE_CLOSESOCKET_CAMEL], 1, [Define to 1 if you have `CloseSocket`]    )], [], $cares_all_includes)
 AC_CHECK_DECL(fcntl,           [AC_DEFINE([HAVE_FCNTL],             1, [Define to 1 if you have `fcntl`]          )], [], $cares_all_includes)
 AC_CHECK_DECL(getenv,          [AC_DEFINE([HAVE_GETENV],            1, [Define to 1 if you have `getenv`]         )], [], $cares_all_includes)
+AC_CHECK_DECL(secure_getenv,   [AC_DEFINE([HAVE_SECURE_GETENV],     1, [Define to 1 if you have `secure_getenv`]  )], [], $cares_all_includes)
+AC_CHECK_DECL(issetugid,       [AC_DEFINE([HAVE_ISSETUGID],         1, [Define to 1 if you have `issetugid`]      )], [], $cares_all_includes)
 AC_CHECK_DECL(gethostname,     [AC_DEFINE([HAVE_GETHOSTNAME],       1, [Define to 1 if you have `gethostname`]    )], [], $cares_all_includes)
 AC_CHECK_DECL(getrandom,       [AC_DEFINE([HAVE_GETRANDOM],         1, [Define to 1 if you have `getrandom`]      )], [], $cares_all_includes)
 AC_CHECK_DECL(getservbyport_r, [AC_DEFINE([HAVE_GETSERVBYPORT_R],   1, [Define to 1 if you have `getservbyport_r`])], [], $cares_all_includes)

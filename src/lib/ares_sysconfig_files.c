@@ -500,7 +500,7 @@ ares_status_t ares_init_by_environment(ares_sysconfig_t *sysconfig)
   const char   *res_options;
   ares_status_t status;
 
-  localdomain = getenv("LOCALDOMAIN");
+  localdomain = ares_getenv("LOCALDOMAIN");
   if (localdomain) {
     char *temp = ares_strdup(localdomain);
     if (temp == NULL) {
@@ -513,7 +513,7 @@ ares_status_t ares_init_by_environment(ares_sysconfig_t *sysconfig)
     }
   }
 
-  res_options = getenv("RES_OPTIONS");
+  res_options = ares_getenv("RES_OPTIONS");
   if (res_options) {
     status = ares_sysconfig_set_options(sysconfig, res_options);
     if (status != ARES_SUCCESS) {

@@ -133,12 +133,12 @@ static ares_status_t ares_init_sysconfig_mvs(const ares_channel_t *channel,
 static ares_status_t ares_init_sysconfig_riscos(const ares_channel_t *channel,
                                                 ares_sysconfig_t     *sysconfig)
 {
-  char         *line;
+  const char   *line;
   ares_status_t status = ARES_SUCCESS;
 
   /* Under RISC OS, name servers are listed in the
      system variable Inet$Resolvers, space separated. */
-  line = getenv("Inet$Resolvers");
+  line = ares_getenv("Inet$Resolvers");
   if (line) {
     char *resolvers = ares_strdup(line);
     char *pos;
@@ -671,10 +671,13 @@ ares_status_t ares_init_by_sysconfig(ares_channel_t *channel)
     goto done;
   }
 
-  /* Environment is supposed to override sysconfig */
-  status = ares_init_by_environment(&sysconfig);
-  if (status != ARES_SUCCESS) {
-    goto done;
+  /* Environment is supposed to override sysconfig, unless the application
+   * asked for the environment to be ignored */
+  if (!(channel->flags & ARES_FLAG_NOENV)) {
+    status = ares_init_by_environment(&sysconfig);
+    if (status != ARES_SUCCESS) {
+      goto done;
+    }
   }
 
   /* Search domains from any configuration source (registry, resolv.conf,

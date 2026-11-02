@@ -66,10 +66,7 @@
 #include "ares_punycode.h"
 #include "util/ares_uri.h"
 
-#ifndef HAVE_GETENV
-#  include "ares_getenv.h"
-#  define getenv(ptr) ares_getenv(ptr)
-#endif
+#include "ares_getenv.h"
 
 #define DEFAULT_TIMEOUT 2000 /* milliseconds */
 #define DEFAULT_TRIES   3

@@ -28,11 +28,35 @@
 #include "ares_private.h"
 #include "ares_getenv.h"
 
-#ifndef HAVE_GETENV
-
-char *ares_getenv(const char *name)
-{
-  return NULL;
-}
-
+#ifdef HAVE_STDLIB_H
+#  include <stdlib.h>
 #endif
+#ifdef HAVE_UNISTD_H
+#  include <unistd.h>
+#endif
+
+/* Like the system resolver, ignore the environment in setuid/setgid (or
+ * otherwise privilege-elevated) processes, where it is controlled by a less
+ * privileged user. */
+const char *ares_getenv(const char *name)
+{
+#if defined(HAVE_SECURE_GETENV)
+  return secure_getenv(name);
+#elif defined(HAVE_ISSETUGID)
+  /* LCOV_EXCL_START: FallbackCode */
+  if (issetugid()) {
+    return NULL;
+  }
+  return getenv(name);
+  /* LCOV_EXCL_STOP */
+#elif defined(HAVE_GETENV)
+  /* LCOV_EXCL_START: FallbackCode */
+  return getenv(name);
+  /* LCOV_EXCL_STOP */
+#else
+  /* LCOV_EXCL_START: FallbackCode */
+  (void)name;
+  return NULL;
+  /* LCOV_EXCL_STOP */
+#endif
+}

@@ -239,6 +239,7 @@ typedef enum {
 #define ARES_FLAG_EDNS        (1 << 8)
 #define ARES_FLAG_NO_DFLT_SVR (1 << 9)
 #define ARES_FLAG_DNS0x20     (1 << 10)
+#define ARES_FLAG_NOENV       (1 << 11)
 
 /* Option mask values */
 #define ARES_OPT_FLAGS           (1 << 0)

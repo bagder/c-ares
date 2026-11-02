@@ -535,8 +535,9 @@ ares_status_t ares_lookup_hostaliases(const ares_channel_t *channel,
 
   *alias = NULL;
 
-  /* Configuration says to not perform alias lookup */
-  if (channel->flags & ARES_FLAG_NOALIASES) {
+  /* Configuration says to not perform alias lookup, or not to consult the
+   * environment, which is where HOSTALIASES comes from */
+  if (channel->flags & (ARES_FLAG_NOALIASES | ARES_FLAG_NOENV)) {
     return ARES_ENOTFOUND;
   }
 
@@ -545,7 +546,7 @@ ares_status_t ares_lookup_hostaliases(const ares_channel_t *channel,
     return ARES_ENOTFOUND;
   }
 
-  hostaliases = getenv("HOSTALIASES");
+  hostaliases = ares_getenv("HOSTALIASES");
   if (hostaliases == NULL) {
     status = ARES_ENOTFOUND;
     goto done;

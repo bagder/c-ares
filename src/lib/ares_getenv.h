@@ -27,8 +27,14 @@
 #ifndef HEADER_CARES_GETENV_H
 #define HEADER_CARES_GETENV_H
 
-#ifndef HAVE_GETENV
-extern char *ares_getenv(const char *name);
-#endif
+/*! Retrieve an environment variable.  Returns NULL if the variable is unset,
+ *  if the platform has no environment, or if the process is running with
+ *  elevated privileges (setuid/setgid), in which case the environment is
+ *  untrusted.
+ *
+ *  \param[in] name  Name of the environment variable
+ *  \return value of the variable, or NULL
+ */
+const char *ares_getenv(const char *name);
 
 #endif /* HEADER_CARES_GETENV_H */

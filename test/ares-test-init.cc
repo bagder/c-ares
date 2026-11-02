@@ -391,6 +391,44 @@ TEST_F(LibraryTest, EnvInit) {
   ares_destroy(channel);
 }
 
+static bool ChannelHasDomain(const ares_channel_t *channel, const char *domain)
+{
+  for (size_t i = 0; i < channel->ndomains; i++) {
+    if (strcmp(channel->domains[i], domain) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+TEST_F(LibraryTest, EnvInitNoEnv)
+{
+  ares_channel_t *channel = nullptr;
+  EnvValue        v1("LOCALDOMAIN", "this.is.local");
+  EnvValue        v2("RES_OPTIONS", "options ndots:7");
+
+  /* The environment is honored by default */
+  EXPECT_EQ(ARES_SUCCESS, ares_init(&channel));
+  EXPECT_EQ(7, (int)channel->ndots);
+  EXPECT_TRUE(ChannelHasDomain(channel, "this.is.local"));
+  ares_destroy(channel);
+  channel = nullptr;
+
+  /* ... but not with ARES_FLAG_NOENV */
+  struct ares_options opts;
+  memset(&opts, 0, sizeof(opts));
+  opts.flags = ARES_FLAG_NOENV;
+  EXPECT_EQ(ARES_SUCCESS, ares_init_options(&channel, &opts, ARES_OPT_FLAGS));
+  EXPECT_NE(7, (int)channel->ndots);
+  EXPECT_FALSE(ChannelHasDomain(channel, "this.is.local"));
+
+  /* and it stays ignored across a reinit */
+  EXPECT_EQ(ARES_SUCCESS, ares_reinit(channel));
+  EXPECT_NE(7, (int)channel->ndots);
+  EXPECT_FALSE(ChannelHasDomain(channel, "this.is.local"));
+  ares_destroy(channel);
+}
+
 TEST_F(LibraryTest, EnvInitBogusAttempts)
 {
   ares_channel_t *channel = nullptr;
