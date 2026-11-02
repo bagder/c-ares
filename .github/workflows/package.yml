@@ -48,6 +48,44 @@ jobs:
           autoreconf -fi
           ./configure
           make dist
+      - name: Generate subject
+        id: hash
+        run: |
+          set -euo pipefail
+          archive="c-ares-${{ steps.version.outputs.version }}.tar.gz"
+          sha256="$(sha256sum "$archive" | cut -d' ' -f1)"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "hashes=$(printf '%s  %s\n' "$sha256" "$archive" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release SBOM
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          file: c-ares-${{ steps.version.outputs.version }}.tar.gz
+          format: spdx-json
+          output-file: c-ares-${{ steps.version.outputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Validate release SBOM
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.hash.outputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          spdx="c-ares-$VERSION.spdx.json"
+          jq -e --arg sha "$SHA256" '
+            any(
+              .packages[]?;
+              any(
+                .checksums[]?;
+                .algorithm == "SHA256" and .checksumValue == $sha
+              )
+            )
+          ' "$spdx" >/dev/null
+
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -56,6 +94,7 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 7
+
       - name: Upload Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: startsWith(github.ref, 'refs/tags/')
@@ -64,14 +103,11 @@ jobs:
           draft: true
           make_latest: true
           name: ${{ steps.version.outputs.version }}
-          files: c-ares-${{ steps.version.outputs.version }}.tar.gz
+          files: |
+            c-ares-${{ steps.version.outputs.version }}.tar.gz
+            c-ares-${{ steps.version.outputs.version }}.spdx.json
           fail_on_unmatched_files: true
           discussion_category_name: "Announcements"
-      - name: Generate subject
-        id: hash
-        run: |
-          set -euo pipefail
-          echo "hashes=$(sha256sum c-ares-*.tar.gz | base64 -w0)" >> "$GITHUB_OUTPUT"
 
   provenance:
     needs: [build]
@@ -91,7 +127,7 @@ jobs:
       provenance-name: "c-ares-${{ needs.build.outputs.version }}.intoto.jsonl"
 
   upload-provenance:
-    needs: [provenance]
+    needs: [build, provenance]
     runs-on: ubuntu-latest
     permissions:
       actions: read # To read the workflow path.
