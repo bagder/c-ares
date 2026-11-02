@@ -20,7 +20,7 @@ include Makefile.inc
 
 TESTS = arestest fuzzcheck.sh
 
-noinst_PROGRAMS = arestest aresfuzz aresfuzzname dnsdump ares_queryloop
+noinst_PROGRAMS = arestest aresfuzz aresfuzzname aresfuzzbuild dnsdump ares_queryloop
 EXTRA_DIST = fuzzcheck.sh CMakeLists.txt Makefile.m32 Makefile.msvc README.md $(srcdir)/fuzzinput/* $(srcdir)/fuzznames/*
 arestest_SOURCES = $(TESTSOURCES) $(TESTHEADERS)
 
@@ -33,6 +33,9 @@ aresfuzz_LDADD = $(top_builddir)/src/lib/libcares.la $(PTHREAD_LIBS) $(CODE_COVE
 
 aresfuzzname_SOURCES = $(FUZZNAMESOURCES)
 aresfuzzname_LDADD = $(top_builddir)/src/lib/libcares.la $(PTHREAD_LIBS) $(CODE_COVERAGE_LIBS)
+
+aresfuzzbuild_SOURCES = $(FUZZBUILDSOURCES)
+aresfuzzbuild_LDADD = $(top_builddir)/src/lib/libcares.la $(PTHREAD_LIBS) $(CODE_COVERAGE_LIBS)
 
 dnsdump_SOURCES = $(DUMPSOURCES)
 dnsdump_LDADD = $(top_builddir)/src/lib/libcares.la $(PTHREAD_LIBS) $(CODE_COVERAGE_LIBS)
