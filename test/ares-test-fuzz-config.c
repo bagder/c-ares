@@ -92,7 +92,7 @@ static void host_callback(void *arg, int status, int timeouts,
 static void addrinfo_callback(void *arg, int status, int timeouts,
                               struct ares_addrinfo *addrinfo)
 {
-  const struct ares_addrinfo_node *node;
+  const struct ares_addrinfo_node  *node;
   const struct ares_addrinfo_cname *cname;
 
   (void)arg;
@@ -111,8 +111,8 @@ static void addrinfo_callback(void *arg, int status, int timeouts,
   ares_freeaddrinfo(addrinfo);
 }
 
-static void nameinfo_callback(void *arg, int status, int timeouts,
-                              char *node, char *service)
+static void nameinfo_callback(void *arg, int status, int timeouts, char *node,
+                              char *service)
 {
   (void)arg;
   (void)timeouts;
@@ -128,10 +128,10 @@ static void nameinfo_callback(void *arg, int status, int timeouts,
  * Plain C90 constructs only (mkstemp/strdup are hidden in strict mode). */
 static char *write_temp_file(const unsigned char *data, size_t len)
 {
-  char    path[64];
-  char   *result;
-  int     fd;
-  long    off = 0;
+  char                 path[64];
+  char                *result;
+  int                  fd;
+  long                 off = 0;
   static unsigned long counter;
 
   counter++;
@@ -161,24 +161,24 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size);
 
 int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
 {
-  struct ares_options      opts;
-  ares_channel_t          *channel = NULL;
-  int                      optmask = 0;
-  static char              lookups[] = "f";
-  unsigned char            resolvbuf[MAX_RESOLVCONF_LEN];
-  unsigned char            hostsbuf[MAX_HOSTS_LEN];
-  char                     node[MAX_NODE_LEN + 1];
-  char                     service[MAX_SERVICE_LEN + 1];
-  char                    *resolvconf_path = NULL;
-  char                    *hosts_path      = NULL;
-  size_t                   resolvlen;
-  size_t                   hostslen;
-  size_t                   nodelen;
-  size_t                   servicelen;
-  unsigned long            pos = 0;
-  unsigned int             addr = 0;
-  unsigned int             op = 0;
-  int                      round;
+  struct ares_options opts;
+  ares_channel_t     *channel   = NULL;
+  int                 optmask   = 0;
+  static char         lookups[] = "f";
+  unsigned char       resolvbuf[MAX_RESOLVCONF_LEN];
+  unsigned char       hostsbuf[MAX_HOSTS_LEN];
+  char                node[MAX_NODE_LEN + 1];
+  char                service[MAX_SERVICE_LEN + 1];
+  char               *resolvconf_path = NULL;
+  char               *hosts_path      = NULL;
+  size_t              resolvlen;
+  size_t              hostslen;
+  size_t              nodelen;
+  size_t              servicelen;
+  unsigned long       pos  = 0;
+  unsigned int        addr = 0;
+  unsigned int        op   = 0;
+  int                 round;
 
   if (ares_library_init(ARES_LIB_INIT_ALL) != ARES_SUCCESS) {
     return 0;
@@ -190,7 +190,7 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
     goto done;
   }
   resolvlen = ((size_t)data[0] << 8) | (size_t)data[1];
-  pos = 2;
+  pos       = 2;
   if (resolvlen > MAX_RESOLVCONF_LEN || pos + resolvlen > size) {
     goto done;
   }
@@ -199,8 +199,8 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
   if (pos + 2 > size) {
     goto done;
   }
-  hostslen = ((size_t)data[pos] << 8) | (size_t)data[pos + 1];
-  pos += 2;
+  hostslen  = ((size_t)data[pos] << 8) | (size_t)data[pos + 1];
+  pos      += 2;
   if (hostslen > MAX_HOSTS_LEN || pos + hostslen > size) {
     goto done;
   }
@@ -214,18 +214,18 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
     goto done;
   }
   memcpy(node, data + pos, nodelen);
-  node[nodelen] = 0;
-  pos += nodelen;
-  servicelen = data[pos++];
+  node[nodelen]  = 0;
+  pos           += nodelen;
+  servicelen     = data[pos++];
   if (servicelen > MAX_SERVICE_LEN || pos + servicelen + 5 > size) {
     goto done;
   }
   memcpy(service, data + pos, servicelen);
-  service[servicelen] = 0;
-  pos += servicelen;
+  service[servicelen]  = 0;
+  pos                 += servicelen;
   memcpy(&addr, data + pos, 4);
   pos += 4;
-  op = data[pos];
+  op   = data[pos];
 
   resolvconf_path = write_temp_file(resolvbuf, resolvlen);
   hosts_path      = write_temp_file(hostsbuf, hostslen);
@@ -234,18 +234,18 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
   }
 
   memset(&opts, 0, sizeof(opts));
-  opts.timeout       = 500; /* milliseconds via ARES_OPT_TIMEOUTMS */
-  optmask           |= ARES_OPT_TIMEOUTMS;
-  opts.tries         = 1;
-  optmask           |= ARES_OPT_TRIES;
-  opts.lookups       = lookups; /* files only: deterministic, offline */
-  optmask           |= ARES_OPT_LOOKUPS;
-  opts.ednspsz       = 1232;
-  optmask           |= ARES_OPT_EDNSPSZ;
-  opts.resolvconf_path = resolvconf_path;
-  optmask           |= ARES_OPT_RESOLVCONF;
-  opts.hosts_path      = hosts_path;
-  optmask           |= ARES_OPT_HOSTS_FILE;
+  opts.timeout          = 500; /* milliseconds via ARES_OPT_TIMEOUTMS */
+  optmask              |= ARES_OPT_TIMEOUTMS;
+  opts.tries            = 1;
+  optmask              |= ARES_OPT_TRIES;
+  opts.lookups          = lookups; /* files only: deterministic, offline */
+  optmask              |= ARES_OPT_LOOKUPS;
+  opts.ednspsz          = 1232;
+  optmask              |= ARES_OPT_EDNSPSZ;
+  opts.resolvconf_path  = resolvconf_path;
+  optmask              |= ARES_OPT_RESOLVCONF;
+  opts.hosts_path       = hosts_path;
+  optmask              |= ARES_OPT_HOSTS_FILE;
 
   if (ares_init_options(&channel, &opts, optmask) != ARES_SUCCESS) {
     goto done;
@@ -261,17 +261,17 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
       g_outstanding++;
       ares_gethostbyname(channel, node, AF_INET6, host_callback, NULL);
       break;
-    default: {
-      struct ares_addrinfo_hints hints;
-      memset(&hints, 0, sizeof(hints));
-      hints.ai_family   = AF_UNSPEC;
-      hints.ai_socktype = SOCK_STREAM;
-      g_outstanding++;
-      ares_getaddrinfo(channel, node,
-                       (op & 0x10u) ? service : NULL, &hints,
-                       addrinfo_callback, NULL);
-      break;
-    }
+    default:
+      {
+        struct ares_addrinfo_hints hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family   = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        g_outstanding++;
+        ares_getaddrinfo(channel, node, (op & 0x10u) ? service : NULL, &hints,
+                         addrinfo_callback, NULL);
+        break;
+      }
   }
 
   if (op & 0x04u) {
@@ -286,8 +286,8 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
     struct sockaddr_in6 sa6;
     struct sockaddr    *sa;
     socklen_t           salen;
-    int                 niflags = ARES_NI_NUMERICHOST | ARES_NI_LOOKUPHOST |
-                                  ARES_NI_LOOKUPSERVICE;
+    int                 niflags =
+      ARES_NI_NUMERICHOST | ARES_NI_LOOKUPHOST | ARES_NI_LOOKUPSERVICE;
     if (op & 0x10u) {
       niflags |= ARES_NI_DGRAM;
     }
@@ -302,8 +302,8 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
     sa4.sin_addr   = *((struct in_addr *)&addr);
     sa4.sin_port   = htons((unsigned short)((addr >> 16) | 1));
     memset(&sa6, 0, sizeof(sa6));
-    sa6.sin6_family = AF_INET6;
-    sa6.sin6_port   = htons((unsigned short)((addr >> 16) | 1));
+    sa6.sin6_family           = AF_INET6;
+    sa6.sin6_port             = htons((unsigned short)((addr >> 16) | 1));
     sa6.sin6_addr.s6_addr[15] = 1;
     if (op & 0x80u) {
       sa    = (struct sockaddr *)&sa6;
