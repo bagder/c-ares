@@ -1423,9 +1423,11 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
    * the cache or allowing retries.  We want to make sure it only attempts to
    * use the server in question */
   probe_server->probe_pending = ARES_TRUE;
-  ares_send_nolock(channel, probe_server,
-                   ARES_SEND_FLAG_NOCACHE | ARES_SEND_FLAG_NORETRY,
-                   query->query, server_probe_cb, NULL, NULL);
+  if (ares_send_nolock(
+        channel, probe_server, ARES_SEND_FLAG_NOCACHE | ARES_SEND_FLAG_NORETRY,
+        query->query, server_probe_cb, NULL, NULL) != ARES_SUCCESS) {
+    probe_server->probe_pending = ARES_FALSE;
+  }
 }
 
 static size_t ares_calc_query_timeout(const ares_query_t   *query,

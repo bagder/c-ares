@@ -114,7 +114,7 @@ ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
   ares_query_t      *query;
   ares_timeval_t     now;
   ares_status_t      status;
-  unsigned short     id          = generate_unique_qid(channel);
+  unsigned short     id;
   ares_dns_record_t *dnsrec_resp = NULL;
   char              *qcache_key  = NULL;
 
@@ -171,6 +171,14 @@ ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
       return status;
     }
   }
+
+  /* RFC 1035 section 4.1.1 limits the query ID to 16 bits. */
+  if (ares_htable_szvp_num_keys(channel->queries_by_qid) >= 65536) {
+    ares_free(qcache_key);
+    callback(arg, ARES_ENOMEM, 0, NULL);
+    return ARES_ENOMEM;
+  }
+  id = generate_unique_qid(channel);
 
   /* Allocate space for query and allocated fields. */
   query = ares_malloc(sizeof(ares_query_t));
