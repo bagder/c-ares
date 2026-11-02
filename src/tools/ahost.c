@@ -143,6 +143,7 @@ int main(int argc, char **argv)
   }
 
   status = ares_init_options(&channel, &options, optmask);
+  ares_destroy_options(&options);
   if (status != ARES_SUCCESS) {
     free(servers);
     fprintf(stderr, "ares_init: %s\n", ares_strerror(status));
