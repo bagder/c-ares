@@ -1601,6 +1601,30 @@ TEST_P(MockChannelTest, SearchDomainsBare) {
   EXPECT_EQ("{'www' aliases=[] addrs=[2.3.4.5]}", ss.str());
 }
 
+TEST_P(MockChannelTest, SearchDoesNotAppendDomainsAfterAsIsNoData)
+{
+  DNSPacket nodata;
+  nodata.set_response().set_aa().add_question(
+    new DNSQuestion("www.example.com", T_A));
+  EXPECT_CALL(server_, OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(&server_, &nodata));
+
+  DNSPacket suffix;
+  suffix.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.example.com.first.com", T_A))
+    .add_answer(
+      new DNSARR("www.example.com.first.com", 0x0200, { 2, 3, 4, 5 }));
+  ON_CALL(server_, OnRequest("www.example.com.first.com", T_A))
+    .WillByDefault(SetReply(&server_, &suffix));
+
+  SearchResult result;
+  ares_search(channel_, "www.example.com", C_IN, T_A, SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ENODATA, result.status_);
+}
+
 TEST_P(MockChannelTest, SearchNoDataThenSuccess) {
   // First two search domains recognize the name but have no A records.
   DNSPacket nofirst;

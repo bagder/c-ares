@@ -567,7 +567,12 @@ static void host_callback(void *arg, ares_status_t status, size_t timeouts,
       if (status == ARES_ENODATA || addinfostatus == ARES_ENODATA) {
         hquery->nodata_cnt++;
       }
-      next_lookup(hquery, hquery->nodata_cnt ? ARES_ENODATA : status);
+      if (hquery->nodata_cnt && hquery->next_name_idx == 1 &&
+          ares_strcaseeq(hquery->names[0], hquery->name)) {
+        end_hquery(hquery, ARES_ENODATA);
+      } else {
+        next_lookup(hquery, hquery->nodata_cnt ? ARES_ENODATA : status);
+      }
     } else if ((status == ARES_ESERVFAIL || status == ARES_EREFUSED) &&
                ares_name_label_cnt(hquery->names[hquery->next_name_idx - 1]) ==
                  1) {

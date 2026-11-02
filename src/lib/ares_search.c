@@ -48,6 +48,7 @@ struct search_query {
   size_t               next_name_idx; /* next name index being attempted */
   size_t      timeouts;        /* number of timeouts we saw for this request */
   ares_bool_t ever_got_nodata; /* did we ever get ARES_ENODATA along the way? */
+  ares_bool_t as_is_first;     /* is the original name the first lookup? */
 };
 
 static void squery_free(struct search_query *squery)
@@ -123,6 +124,11 @@ static void search_callback(void *arg, ares_status_t status, size_t timeouts,
 
   switch (mystatus) {
     case ARES_ENODATA:
+      if (squery->as_is_first && squery->next_name_idx == 1) {
+        end_squery(squery, mystatus, NULL);
+        return;
+      }
+      break;
     case ARES_ENOTFOUND:
       break;
     case ARES_ESERVFAIL:
@@ -366,6 +372,8 @@ static ares_status_t ares_search_int(ares_channel_t          *channel,
   if (status != ARES_SUCCESS) {
     goto fail;
   }
+
+  squery->as_is_first = ares_strcaseeq(squery->names[0], name);
 
   status = ares_search_next(channel, squery, &skip_cleanup);
   if (status != ARES_SUCCESS) {

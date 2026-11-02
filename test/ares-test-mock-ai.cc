@@ -931,6 +931,56 @@ TEST_P(MockEDNSChannelTestAI, RetryWithoutEDNS) {
   EXPECT_THAT(result.ai_, IncludesV4Address("1.2.3.4"));
 }
 
+TEST_P(MockChannelTestAI, SearchStopsAfterAsIsNoData)
+{
+  DNSPacket nodata;
+  nodata.set_response().set_aa().add_question(
+    new DNSQuestion("www.example.com", T_AAAA));
+  EXPECT_CALL(server_, OnRequest("www.example.com", T_AAAA))
+    .WillOnce(SetReply(&server_, &nodata));
+  EXPECT_CALL(server_, OnRequest("www.example.com.first.com", T_AAAA)).Times(0);
+
+  AddrInfoResult             result;
+  struct ares_addrinfo_hints hints = { 0, 0, 0, 0 };
+  hints.ai_family                  = AF_INET6;
+  hints.ai_flags                   = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www.example.com", NULL, &hints, AddrInfoCallback,
+                   &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ENODATA, result.status_);
+  EXPECT_EQ(nullptr, result.ai_);
+}
+
+TEST_P(MockChannelTestAI, SearchNoDataThenSuccess)
+{
+  DNSPacket nodata;
+  nodata.set_response().set_aa().add_question(
+    new DNSQuestion("www.first.com", T_AAAA));
+  EXPECT_CALL(server_, OnRequest("www.first.com", T_AAAA))
+    .WillOnce(SetReply(&server_, &nodata));
+
+  DNSPacket success;
+  success.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.second.org", T_AAAA))
+    .add_answer(new DNSAaaaRR(
+      "www.second.org", 100,
+      { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }));
+  EXPECT_CALL(server_, OnRequest("www.second.org", T_AAAA))
+    .WillOnce(SetReply(&server_, &success));
+
+  AddrInfoResult             result;
+  struct ares_addrinfo_hints hints = { 0, 0, 0, 0 };
+  hints.ai_family                  = AF_INET6;
+  hints.ai_flags                   = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+}
+
 TEST_P(MockChannelTestAI, SearchDomains) {
   DNSPacket nofirst;
   nofirst.set_response().set_aa().set_rcode(NXDOMAIN)
