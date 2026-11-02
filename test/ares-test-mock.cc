@@ -813,6 +813,69 @@ TEST_P(CacheQueriesTest, UnknownQueryTypesDoNotShareCacheEntries) {
   EXPECT_TRUE(r2.done_);
 }
 
+// Issue 1384: two UPDATE messages for the same zone share a question but differ
+// in the records they carry, so they are distinct requests.  The cache keyed
+// them only by the question, so the second update was answered with the first's
+// reply and never reached the server.
+TEST_P(CacheQueriesTest, UpdateNotCached) {
+  DNSPacket rsp;
+  rsp.opcode_ = O_UPDATE;
+  rsp.set_response().set_aa().add_question(
+    new DNSQuestion("example.com", T_SOA));
+  EXPECT_CALL(server_, OnRequest("example.com", T_SOA))
+    .Times(2)
+    .WillRepeatedly(SetReply(&server_, &rsp));
+
+  ares_dns_record_t *req1 = nullptr;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_create(&req1, 0, 0, ARES_OPCODE_UPDATE,
+                                   ARES_RCODE_NOERROR));
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_query_add(req1, "example.com", ARES_REC_TYPE_SOA,
+                                      ARES_CLASS_IN));
+  ares_dns_rr_t *rr1 = nullptr;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_rr_add(&rr1, req1, ARES_SECTION_AUTHORITY,
+                                   "host.example.com", ARES_REC_TYPE_A,
+                                   ARES_CLASS_IN, 300));
+  struct in_addr addr1;
+  EXPECT_EQ(1, ares_inet_pton(AF_INET, "192.0.2.1", &addr1));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_rr_set_addr(rr1, ARES_RR_A_ADDR, &addr1));
+
+  QueryResult r1;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_send_dnsrec(channel_, req1, QueryCallback, &r1, nullptr));
+  Process();
+  EXPECT_TRUE(r1.done_);
+  EXPECT_EQ(ARES_SUCCESS, r1.status_);
+
+  ares_dns_record_t *req2 = nullptr;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_create(&req2, 0, 0, ARES_OPCODE_UPDATE,
+                                   ARES_RCODE_NOERROR));
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_query_add(req2, "example.com", ARES_REC_TYPE_SOA,
+                                      ARES_CLASS_IN));
+  ares_dns_rr_t *rr2 = nullptr;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_rr_add(&rr2, req2, ARES_SECTION_AUTHORITY,
+                                   "host.example.com", ARES_REC_TYPE_A,
+                                   ARES_CLASS_IN, 300));
+  struct in_addr addr2;
+  EXPECT_EQ(1, ares_inet_pton(AF_INET, "192.0.2.2", &addr2));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_rr_set_addr(rr2, ARES_RR_A_ADDR, &addr2));
+
+  QueryResult r2;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_send_dnsrec(channel_, req2, QueryCallback, &r2, nullptr));
+  Process();
+  EXPECT_TRUE(r2.done_);
+  EXPECT_EQ(ARES_SUCCESS, r2.status_);
+
+  ares_dns_record_destroy(req1);
+  ares_dns_record_destroy(req2);
+}
+
 // Handing back a duplicate materialises the pending TTL decrement, so a
 // callback that reads the TTL off the record it is given sees the remaining
 // lifetime rather than the value the server sent.  docs/ares_init_options.3
