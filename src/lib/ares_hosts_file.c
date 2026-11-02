@@ -938,19 +938,34 @@ static ares_status_t ares_hosts_path(const ares_channel_t *channel,
 
   if (!path_hosts) {
 #if defined(USE_WINSOCK)
-    char  PATH_HOSTS[MAX_PATH] = "";
+    char  PATH_HOSTS[MAX_PATH];
     char  tmp[MAX_PATH];
     HKEY  hkeyHosts;
-    DWORD dwLength = sizeof(tmp);
+    DWORD dwLength;
+
+    memset(PATH_HOSTS, 0, sizeof(PATH_HOSTS));
+    memset(tmp, 0, sizeof(tmp));
+    dwLength = (DWORD)sizeof(tmp);
+
     if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, WIN_NS_NT_KEY, 0, KEY_READ,
                       &hkeyHosts) != ERROR_SUCCESS) {
       return ARES_ENOTFOUND;
     }
-    RegQueryValueExA(hkeyHosts, DATABASEPATH, NULL, NULL, (LPBYTE)tmp,
-                     &dwLength);
-    ExpandEnvironmentStringsA(tmp, PATH_HOSTS, MAX_PATH);
+    if (RegQueryValueExA(hkeyHosts, DATABASEPATH, NULL, NULL, (LPBYTE)tmp,
+                         &dwLength) != ERROR_SUCCESS ||
+        dwLength == 0) {
+      RegCloseKey(hkeyHosts);
+      return ARES_ENOTFOUND;
+    }
     RegCloseKey(hkeyHosts);
-    if (strlen(PATH_HOSTS) + strlen(WIN_PATH_HOSTS) >= MAX_PATH) {
+
+    /* Registry REG_SZ data is not guaranteed to be null-terminated */
+    tmp[sizeof(tmp) - 1] = '\0';
+    if (ExpandEnvironmentStringsA(tmp, PATH_HOSTS, (DWORD)sizeof(PATH_HOSTS)) ==
+        0) {
+      return ARES_ENOTFOUND;
+    }
+    if (strlen(PATH_HOSTS) + strlen(WIN_PATH_HOSTS) >= sizeof(PATH_HOSTS)) {
       return ARES_ENOTFOUND;
     }
     strcat(PATH_HOSTS, WIN_PATH_HOSTS);
