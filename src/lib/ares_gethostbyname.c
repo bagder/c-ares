@@ -124,10 +124,15 @@ void ares_gethostbyname(ares_channel_t *channel, const char *name, int family,
   ghbn_arg->arg      = arg;
   ghbn_arg->channel  = channel;
 
-  /* NOTE: ares_getaddrinfo() locks the channel, we don't use the channel
-   *       outside so no need to lock */
-  ares_getaddrinfo(channel, name, NULL, &hints, ares_gethostbyname_callback,
-                   ghbn_arg);
+  ares_channel_lock(channel);
+  /* Notifications raised along the way are delivered once this whole call
+   * has unwound, not from inside the internals it runs.  See
+   * ares_deferred_cb_enter(). */
+  ares_deferred_cb_enter(channel);
+  ares_getaddrinfo_nolock(channel, name, NULL, &hints,
+                          ares_gethostbyname_callback, ghbn_arg, arg);
+  ares_deferred_cb_leave(channel);
+  ares_channel_unlock(channel);
 }
 
 static void sort_addresses(const struct hostent  *host,

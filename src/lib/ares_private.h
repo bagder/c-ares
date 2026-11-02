@@ -172,6 +172,7 @@ struct ares_query {
 
   ares_callback_dnsrec callback;
   void                *arg;
+  void                *cancel_arg;
 
   /* Query status */
   size_t        try_count; /* Number of times we tried this query already. */
@@ -587,7 +588,13 @@ ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
                                 ares_dns_class_t     dnsclass,
                                 ares_dns_rec_type_t  type,
                                 ares_callback_dnsrec callback, void *arg,
-                                unsigned short *qid);
+                                void *cancel_arg, unsigned short *qid);
+
+void ares_getaddrinfo_nolock(ares_channel_t *channel, const char *name,
+                             const char                       *service,
+                             const struct ares_addrinfo_hints *hints,
+                             ares_addrinfo_callback callback, void *arg,
+                             void *cancel_arg);
 
 /*! Flags controlling behavior for ares_send_nolock() */
 typedef enum {
@@ -602,13 +609,14 @@ ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
                                ares_send_flags_t        flags,
                                const ares_dns_record_t *dnsrec,
                                ares_callback_dnsrec callback, void *arg,
-                               unsigned short *qid);
+                               void *cancel_arg, unsigned short *qid);
 
 /* Same as ares_gethostbyaddr() except does not take a channel lock.  Use this
  * if a channel lock is already held */
 void ares_gethostbyaddr_nolock(ares_channel_t *channel, const void *addr,
                                int addrlen, int family,
-                               ares_host_callback callback, void *arg);
+                               ares_host_callback callback, void *arg,
+                               void *cancel_arg);
 
 /*! Parse a compressed DNS name as defined in RFC1035 starting at the current
  *  offset within the buffer.

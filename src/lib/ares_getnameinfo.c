@@ -173,13 +173,13 @@ static void ares_getnameinfo_int(ares_channel_t        *channel,
         memcpy(&niquery->addr.addr4, addr, sizeof(niquery->addr.addr4));
         ares_gethostbyaddr_nolock(channel, &addr->sin_addr,
                                   sizeof(struct in_addr), AF_INET,
-                                  nameinfo_callback, niquery);
+                                  nameinfo_callback, niquery, arg);
       } else {
         niquery->family = AF_INET6;
         memcpy(&niquery->addr.addr6, addr6, sizeof(niquery->addr.addr6));
         ares_gethostbyaddr_nolock(channel, &addr6->sin6_addr,
                                   sizeof(struct ares_in6_addr), AF_INET6,
-                                  nameinfo_callback, niquery);
+                                  nameinfo_callback, niquery, arg);
       }
     }
   }

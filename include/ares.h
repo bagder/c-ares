@@ -514,6 +514,8 @@ CARES_EXTERN void ares_destroy(ares_channel_t *channel);
 
 CARES_EXTERN void ares_cancel(ares_channel_t *channel);
 
+CARES_EXTERN void ares_cancel_by_arg(ares_channel_t *channel, void *arg);
+
 /* These next 3 configure local binding for the out-going socket
  * connection.  Use these to specify source IP and/or network device
  * on multi-homed systems.

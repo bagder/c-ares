@@ -26,6 +26,37 @@
 
 #include "ares_private.h"
 
+static void ares_cancel_queries(ares_channel_t *channel)
+{
+  ares_llist_node_t *node = NULL;
+
+  /* Re-read the head each iteration rather than caching the next node: a
+   * callback below may cause other queries in this same list to be ended
+   * and their nodes destroyed. */
+  while ((node = ares_llist_node_first(channel->queries_being_cancelled)) !=
+         NULL) {
+    ares_query_t *query;
+
+    query = ares_llist_node_claim(node);
+
+    /* Must come first: node_claim() already destroyed this node, so
+     * ares_detach_query() would otherwise destroy it a second time. */
+    query->node_all_queries = NULL;
+
+    /* Detach from queries_by_qid, the connection and the timeout list
+     * before running user code.  Otherwise a reentrant teardown from
+     * within the callback -- ares_set_servers_csv(), or a new query
+     * hitting a connection error -- still finds this query, ends it a
+     * second time and frees it, and the ares_free_query() below then
+     * double-frees. */
+    ares_detach_query(query);
+
+    /* NOTE: its possible this may enqueue new queries */
+    query->callback(query->arg, ARES_ECANCELLED, 0, NULL);
+    ares_free_query(query);
+  }
+}
+
 /*
  * ares_cancel() cancels all ongoing requests/resolves that might be going on
  * on the given channel. It does NOT kill the channel, use ares_destroy() for
@@ -52,31 +83,44 @@ void ares_cancel(ares_channel_t *channel)
       ares_llist_node_mvparent_last(node, channel->queries_being_cancelled);
     }
 
-    /* Re-read the head each iteration rather than caching the next node: a
-     * callback below may cause other queries in this same list to be ended
-     * and their nodes destroyed. */
-    while ((node = ares_llist_node_first(channel->queries_being_cancelled)) !=
-           NULL) {
-      ares_query_t *query;
+    ares_cancel_queries(channel);
+  }
 
-      query = ares_llist_node_claim(node);
+  /* See if the connections should be cleaned up */
+  ares_check_cleanup_conns(channel);
 
-      /* Must come first: node_claim() already destroyed this node, so
-       * ares_detach_query() would otherwise destroy it a second time. */
-      query->node_all_queries = NULL;
+  ares_queue_notify_empty(channel);
+  ares_deferred_cb_leave(channel);
+  ares_channel_unlock(channel);
+}
 
-      /* Detach from queries_by_qid, the connection and the timeout list
-       * before running user code.  Otherwise a reentrant teardown from
-       * within the callback -- ares_set_servers_csv(), or a new query
-       * hitting a connection error -- still finds this query, ends it a
-       * second time and frees it, and the ares_free_query() below then
-       * double-frees. */
-      ares_detach_query(query);
+void ares_cancel_by_arg(ares_channel_t *channel, void *arg)
+{
+  ares_llist_node_t *node;
+  ares_bool_t        moved = ARES_FALSE;
 
-      /* NOTE: its possible this may enqueue new queries */
-      query->callback(query->arg, ARES_ECANCELLED, 0, NULL);
-      ares_free_query(query);
+  if (channel == NULL) {
+    return;
+  }
+
+  ares_channel_lock(channel);
+  ares_deferred_cb_enter(channel);
+
+  node = ares_llist_node_first(channel->all_queries);
+  while (node != NULL) {
+    ares_llist_node_t *next  = ares_llist_node_next(node);
+    ares_query_t      *query = ares_llist_node_val(node);
+
+    if (query->cancel_arg == arg) {
+      ares_llist_node_mvparent_last(node, channel->queries_being_cancelled);
+      moved = ARES_TRUE;
     }
+
+    node = next;
+  }
+
+  if (moved) {
+    ares_cancel_queries(channel);
   }
 
   /* See if the connections should be cleaned up */

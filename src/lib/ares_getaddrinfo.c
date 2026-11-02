@@ -64,6 +64,7 @@ struct host_query {
   unsigned short             port; /* in host order */
   ares_addrinfo_callback     callback;
   void                      *arg;
+  void                      *cancel_arg;
   struct ares_addrinfo_hints hints;
   int    sent_family; /* this family is what was is being used */
   size_t timeouts;    /* number of timeouts we saw for this request */
@@ -633,10 +634,11 @@ static ares_status_t
   return ARES_SUCCESS;
 }
 
-static void ares_getaddrinfo_int(ares_channel_t *channel, const char *name,
-                                 const char                       *service,
-                                 const struct ares_addrinfo_hints *hints,
-                                 ares_addrinfo_callback callback, void *arg)
+void ares_getaddrinfo_nolock(ares_channel_t *channel, const char *name,
+                             const char                       *service,
+                             const struct ares_addrinfo_hints *hints,
+                             ares_addrinfo_callback callback, void *arg,
+                             void *cancel_arg)
 {
   struct host_query    *hquery;
   unsigned short        port = 0;
@@ -723,6 +725,7 @@ static void ares_getaddrinfo_int(ares_channel_t *channel, const char *name,
   hquery->sent_family = -1; /* nothing is sent yet */
   hquery->callback    = callback;
   hquery->arg         = arg;
+  hquery->cancel_arg  = cancel_arg;
   hquery->ai          = ai;
   hquery->name        = ares_strdup(name);
   if (hquery->name == NULL) {
@@ -766,7 +769,7 @@ void ares_getaddrinfo(ares_channel_t *channel, const char *name,
    * has unwound, not from inside the internals it runs.  See
    * ares_deferred_cb_enter(). */
   ares_deferred_cb_enter(channel);
-  ares_getaddrinfo_int(channel, name, service, hints, callback, arg);
+  ares_getaddrinfo_nolock(channel, name, service, hints, callback, arg, arg);
   ares_deferred_cb_leave(channel);
   ares_channel_unlock(channel);
 }
@@ -787,21 +790,23 @@ static ares_bool_t next_dns_lookup(struct host_query *hquery)
     case AF_INET:
       hquery->remaining += 1;
       ares_query_nolock(hquery->channel, name, ARES_CLASS_IN, ARES_REC_TYPE_A,
-                        host_callback, hquery, &hquery->qid_a);
+                        host_callback, hquery, hquery->cancel_arg,
+                        &hquery->qid_a);
       break;
     case AF_INET6:
       hquery->remaining += 1;
       ares_query_nolock(hquery->channel, name, ARES_CLASS_IN,
                         ARES_REC_TYPE_AAAA, host_callback, hquery,
-                        &hquery->qid_aaaa);
+                        hquery->cancel_arg, &hquery->qid_aaaa);
       break;
     case AF_UNSPEC:
       hquery->remaining += 2;
       ares_query_nolock(hquery->channel, name, ARES_CLASS_IN, ARES_REC_TYPE_A,
-                        host_callback, hquery, &hquery->qid_a);
+                        host_callback, hquery, hquery->cancel_arg,
+                        &hquery->qid_a);
       ares_query_nolock(hquery->channel, name, ARES_CLASS_IN,
                         ARES_REC_TYPE_AAAA, host_callback, hquery,
-                        &hquery->qid_aaaa);
+                        hquery->cancel_arg, &hquery->qid_aaaa);
       break;
     default:
       break;

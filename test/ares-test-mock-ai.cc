@@ -131,6 +131,23 @@ TEST_P(MockUDPChannelTestAI, GetAddrInfoParallelLookups) {
   EXPECT_THAT(result3.ai_, IncludesV4Address("2.3.4.5"));
 }
 
+TEST_P(MockChannelTestAI, CancelByArgGetAddrInfoUnspec)
+{
+  struct ares_addrinfo_hints hints = { 0, 0, 0, 0 };
+  hints.ai_family                  = AF_UNSPEC;
+  hints.ai_flags                   = ARES_AI_NOSORT;
+
+  AddrInfoResult result;
+  ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback,
+                   &result);
+
+  EXPECT_EQ(2, ares_queue_active_queries(channel_));
+  ares_cancel_by_arg(channel_, &result);
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ECANCELLED, result.status_);
+  EXPECT_EQ(0, ares_queue_active_queries(channel_));
+}
+
 // UDP to TCP specific test
 TEST_P(MockUDPChannelTestAI, TruncationRetry) {
   DNSPacket rsptruncated;

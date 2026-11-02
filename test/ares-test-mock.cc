@@ -53,6 +53,13 @@ struct CancelCallbackArg {
   std::vector<size_t> *active_queries_;
 };
 
+struct CancelByArgCallbackArg {
+  ares_channel_t   *channel_;
+  HostResult       *enqueued_result_;
+  ares_bool_t       reenter_;
+  std::vector<int> *statuses_;
+};
+
 static void CancelCallback(void *data, int status, int timeouts,
                            struct hostent *hostent)
 {
@@ -75,6 +82,42 @@ static void CancelCallback(void *data, int status, int timeouts,
   if (arg->reenter_) {
     ares_cancel(arg->channel_);
   }
+}
+
+static void CancelByArgCallback(void *data, int status, int timeouts,
+                                struct hostent *hostent)
+{
+  CancelByArgCallbackArg *arg =
+    reinterpret_cast<CancelByArgCallbackArg *>(data);
+
+  (void)timeouts;
+  (void)hostent;
+
+  arg->statuses_->push_back(status);
+  if (status != ARES_ECANCELLED) {
+    return;
+  }
+
+  if (arg->enqueued_result_ != NULL) {
+    HostResult *enqueued_result = arg->enqueued_result_;
+    arg->enqueued_result_       = NULL;
+    ares_gethostbyname(arg->channel_, "www.third.gov.", AF_INET, HostCallback,
+                       enqueued_result);
+  }
+
+  if (arg->reenter_) {
+    arg->reenter_ = ARES_FALSE;
+    ares_cancel_by_arg(arg->channel_, arg);
+  }
+}
+
+static void CancelByNullArgCallback(void *data, int status, int timeouts,
+                                    struct hostent *hostent)
+{
+  EXPECT_EQ(NULL, data);
+  EXPECT_EQ(ARES_ECANCELLED, status);
+  EXPECT_EQ(0, timeouts);
+  EXPECT_EQ(NULL, hostent);
 }
 
 class NoDNS0x20MockTest
@@ -2147,6 +2190,156 @@ TEST_P(MockChannelTest, CancelImmediate) {
   EXPECT_TRUE(result.done_);
   EXPECT_EQ(ARES_ECANCELLED, result.status_);
   EXPECT_EQ(0, result.timeouts_);
+}
+
+TEST_P(MockChannelTest, CancelByArgImmediate)
+{
+  DNSPacket reply;
+  reply.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.second.org", T_A))
+    .add_answer(
+      new DNSARR("www.second.org", 0x0100, { 0x01, 0x02, 0x03, 0x04 }));
+
+  ON_CALL(server_, OnRequest("www.second.org", T_A))
+    .WillByDefault(SetReply(&server_, &reply));
+
+  HostResult first;
+  HostResult second;
+
+  ares_gethostbyname(channel_, "www.first.com.", AF_INET, HostCallback, &first);
+  ares_gethostbyname(channel_, "www.second.org.", AF_INET, HostCallback,
+                     &second);
+
+  ares_cancel_by_arg(channel_, &first);
+  EXPECT_TRUE(first.done_);
+  EXPECT_EQ(ARES_ECANCELLED, first.status_);
+  EXPECT_FALSE(second.done_);
+
+  Process();
+  EXPECT_TRUE(second.done_);
+  EXPECT_EQ(ARES_SUCCESS, second.status_);
+}
+
+TEST_P(MockChannelTest, CancelByArgCancelsAllMatchingQueries)
+{
+  std::vector<int>       statuses;
+  CancelByArgCallbackArg arg = { channel_, NULL, ARES_FALSE, &statuses };
+
+  ares_gethostbyname(channel_, "www.first.com.", AF_INET, CancelByArgCallback,
+                     &arg);
+  ares_gethostbyname(channel_, "www.second.org.", AF_INET, CancelByArgCallback,
+                     &arg);
+
+  ares_cancel_by_arg(channel_, &arg);
+  ASSERT_EQ(2, statuses.size());
+  EXPECT_EQ(ARES_ECANCELLED, statuses[0]);
+  EXPECT_EQ(ARES_ECANCELLED, statuses[1]);
+}
+
+TEST_P(MockChannelTest, CancelByArgMatchesNull)
+{
+  DNSPacket reply;
+  reply.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.second.org", T_A))
+    .add_answer(
+      new DNSARR("www.second.org", 0x0100, { 0x01, 0x02, 0x03, 0x04 }));
+
+  ON_CALL(server_, OnRequest("www.second.org", T_A))
+    .WillByDefault(SetReply(&server_, &reply));
+
+  HostResult second;
+
+  ares_gethostbyname(channel_, "www.first.com.", AF_INET,
+                     CancelByNullArgCallback, NULL);
+  ares_gethostbyname(channel_, "www.second.org.", AF_INET, HostCallback,
+                     &second);
+  ares_gethostbyname(channel_, "www.third.gov.", AF_INET,
+                     CancelByNullArgCallback, NULL);
+
+  EXPECT_EQ(3, ares_queue_active_queries(channel_));
+  ares_cancel_by_arg(channel_, NULL);
+  EXPECT_EQ(1, ares_queue_active_queries(channel_));
+  EXPECT_FALSE(second.done_);
+
+  Process();
+  EXPECT_TRUE(second.done_);
+  EXPECT_EQ(ARES_SUCCESS, second.status_);
+}
+
+TEST_P(MockChannelTest, CancelQueryCallbackQueryNotCancelled)
+{
+  DNSPacket reply_second;
+  reply_second.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.second.org", T_A))
+    .add_answer(
+      new DNSARR("www.second.org", 0x0100, { 0x01, 0x02, 0x03, 0x04 }));
+  DNSPacket reply_third;
+  reply_third.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.third.gov", T_A))
+    .add_answer(
+      new DNSARR("www.third.gov", 0x0100, { 0x05, 0x06, 0x07, 0x08 }));
+
+  ON_CALL(server_, OnRequest("www.second.org", T_A))
+    .WillByDefault(SetReply(&server_, &reply_second));
+  ON_CALL(server_, OnRequest("www.third.gov", T_A))
+    .WillByDefault(SetReply(&server_, &reply_third));
+
+  HostResult        first;
+  HostResult        second;
+  HostResult        third;
+  CancelCallbackArg arg = { channel_, &first, &third, ARES_FALSE };
+
+  ares_gethostbyname(channel_, "www.first.com.", AF_INET, CancelCallback, &arg);
+  ares_gethostbyname(channel_, "www.second.org.", AF_INET, HostCallback,
+                     &second);
+
+  ares_cancel_by_arg(channel_, &arg);
+  EXPECT_TRUE(first.done_);
+  EXPECT_EQ(ARES_ECANCELLED, first.status_);
+  EXPECT_FALSE(second.done_);
+  EXPECT_FALSE(third.done_);
+
+  Process();
+  EXPECT_TRUE(second.done_);
+  EXPECT_EQ(ARES_SUCCESS, second.status_);
+  EXPECT_TRUE(third.done_);
+  EXPECT_EQ(ARES_SUCCESS, third.status_);
+}
+
+TEST_P(MockChannelTest, CancelByArgReentrant)
+{
+  DNSPacket reply;
+  reply.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.third.gov", T_A))
+    .add_answer(
+      new DNSARR("www.third.gov", 0x0100, { 0x01, 0x02, 0x03, 0x04 }));
+
+  ON_CALL(server_, OnRequest("www.third.gov", T_A))
+    .WillByDefault(SetReply(&server_, &reply));
+
+  HostResult             third;
+  std::vector<int>       statuses;
+  CancelByArgCallbackArg arg = { channel_, &third, ARES_TRUE, &statuses };
+
+  ares_gethostbyname(channel_, "www.first.com.", AF_INET, CancelByArgCallback,
+                     &arg);
+  ares_gethostbyname(channel_, "www.second.org.", AF_INET, CancelByArgCallback,
+                     &arg);
+
+  ares_cancel_by_arg(channel_, &arg);
+  ASSERT_EQ(2, statuses.size());
+  EXPECT_EQ(ARES_ECANCELLED, statuses[0]);
+  EXPECT_EQ(ARES_ECANCELLED, statuses[1]);
+  EXPECT_FALSE(third.done_);
+
+  Process();
+  EXPECT_TRUE(third.done_);
+  EXPECT_EQ(ARES_SUCCESS, third.status_);
 }
 
 TEST_P(MockChannelTest, CancelCallbackQueryNotCancelled)

@@ -62,7 +62,7 @@ ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
                                 ares_dns_class_t     dnsclass,
                                 ares_dns_rec_type_t  type,
                                 ares_callback_dnsrec callback, void *arg,
-                                unsigned short *qid)
+                                void *cancel_arg, unsigned short *qid)
 {
   ares_status_t            status;
   ares_dns_record_t       *dnsrec = NULL;
@@ -106,7 +106,7 @@ ares_status_t ares_query_nolock(ares_channel_t *channel, const char *name,
 
   /* Send it off.  qcallback will be called when we get an answer. */
   status = ares_send_nolock(channel, NULL, 0, dnsrec, ares_query_dnsrec_cb,
-                            qquery, qid);
+                            qquery, cancel_arg, qid);
 
   ares_dns_record_destroy(dnsrec);
   return status;
@@ -129,7 +129,8 @@ ares_status_t ares_query_dnsrec(ares_channel_t *channel, const char *name,
    * has unwound, not from inside the internals it runs.  See
    * ares_deferred_cb_enter(). */
   ares_deferred_cb_enter(channel);
-  status = ares_query_nolock(channel, name, dnsclass, type, callback, arg, qid);
+  status =
+    ares_query_nolock(channel, name, dnsclass, type, callback, arg, arg, qid);
   ares_deferred_cb_leave(channel);
   ares_channel_unlock(channel);
   return status;
@@ -150,7 +151,14 @@ void ares_query(ares_channel_t *channel, const char *name, int dnsclass,
     return;                                 /* LCOV_EXCL_LINE: OutOfMemory */
   }
 
-  ares_query_dnsrec(channel, name, (ares_dns_class_t)dnsclass,
+  ares_channel_lock(channel);
+  /* Notifications raised along the way are delivered once this whole call
+   * has unwound, not from inside the internals it runs.  See
+   * ares_deferred_cb_enter(). */
+  ares_deferred_cb_enter(channel);
+  ares_query_nolock(channel, name, (ares_dns_class_t)dnsclass,
                     (ares_dns_rec_type_t)type, ares_dnsrec_convert_cb, carg,
-                    NULL);
+                    arg, NULL);
+  ares_deferred_cb_leave(channel);
+  ares_channel_unlock(channel);
 }

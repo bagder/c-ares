@@ -32,7 +32,8 @@ give the address as a series of bytes, and
 gives the type of address.  When the query is complete or has failed, the ares
 library will invoke \fIcallback\fP.  Completion or failure of the query may
 happen immediately, or may happen during a later call to
-\fIares_process(3)\fP, \fIares_destroy(3)\fP or \fIares_cancel(3)\fP.
+\fIares_process(3)\fP, \fIares_destroy(3)\fP or \fIares_cancel(3)\fP, or when
+cancelled by \fIares_cancel_by_arg(3)\fP.
 .PP
 The callback argument
 .I arg
@@ -105,5 +106,6 @@ For integrators running their own event loops and not using \fBARES_OPT_EVENT_TH
 care needs to be taken to ensure any file descriptor lists are updated immediately
 within the eventloop when notified.
 .SH SEE ALSO
+.BR ares_cancel_by_arg (3),
 .BR ares_process (3),
 .BR ares_gethostbyname (3)

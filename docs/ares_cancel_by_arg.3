@@ -1,0 +1,31 @@
+.\"
+.\" Copyright 2026 by The c-ares project and its contributors.
+.\" SPDX-License-Identifier: MIT
+.\"
+.TH ARES_CANCEL_BY_ARG 3 "18 October 2026"
+.SH NAME
+ares_cancel_by_arg \- Cancel requests matching a callback argument
+.SH SYNOPSIS
+.nf
+#include <ares.h>
+
+void ares_cancel_by_arg(ares_channel_t *\fIchannel\fP, void *\fIarg\fP)
+.fi
+.SH DESCRIPTION
+The \fBares_cancel_by_arg(3)\fP function cancels all pending lookups/requests
+on the name service channel identified by \fIchannel\fP whose callback
+argument matches \fIarg\fP. Matching callbacks are invoked with a status of
+.BR ARES_ECANCELLED .
+If multiple pending requests use the same callback argument (including
+.BR NULL ),
+all such requests will be cancelled.
+
+If a cancelled request callback adds a new request to the channel, that request
+will \fInot\fP be cancelled by the current invocation of
+\fBares_cancel_by_arg(3)\fP.
+.SH AVAILABILITY
+This function was first introduced in c-ares version 1.35.0.
+.SH SEE ALSO
+.BR ares_cancel (3),
+.BR ares_destroy (3),
+.BR ares_init (3)

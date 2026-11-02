@@ -1,6 +1,7 @@
 # Copyright (C) The c-ares project and its contributors
 # SPDX-License-Identifier: MIT
 MANPAGES = ares_cancel.3		\
+  ares_cancel_by_arg.3			\
   ares_create_query.3			\
   ares_destroy.3			\
   ares_destroy_options.3		\

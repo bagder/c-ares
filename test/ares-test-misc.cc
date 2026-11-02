@@ -745,6 +745,7 @@ TEST_F(LibraryTest, StrError) {
 
 TEST_F(LibraryTest, UsageErrors) {
   ares_cancel(NULL);
+  ares_cancel_by_arg(NULL, NULL);
   ares_set_socket_callback(NULL, NULL, NULL);
   ares_set_socket_configure_callback(NULL, NULL, NULL);
   ares_set_socket_functions(NULL, NULL, NULL);

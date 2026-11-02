@@ -46,6 +46,7 @@ struct addr_query {
   struct ares_addr   addr;
   ares_host_callback callback;
   void              *arg;
+  void              *cancel_arg;
   char       *lookups; /* duplicate memory from channel for ares_reinit() */
   const char *remaining_lookups;
   size_t      timeouts;
@@ -62,7 +63,8 @@ static ares_status_t file_lookup(ares_channel_t         *channel,
 
 void ares_gethostbyaddr_nolock(ares_channel_t *channel, const void *addr,
                                int addrlen, int family,
-                               ares_host_callback callback, void *arg)
+                               ares_host_callback callback, void *arg,
+                               void *cancel_arg)
 {
   struct addr_query *aquery;
 
@@ -90,7 +92,8 @@ void ares_gethostbyaddr_nolock(ares_channel_t *channel, const void *addr,
     return;
     /* LCOV_EXCL_STOP */
   }
-  aquery->channel = channel;
+  aquery->channel    = channel;
+  aquery->cancel_arg = cancel_arg;
   if (family == AF_INET) {
     memcpy(&aquery->addr.addr.addr4, addr, sizeof(aquery->addr.addr.addr4));
   } else {
@@ -116,7 +119,7 @@ void ares_gethostbyaddr(ares_channel_t *channel, const void *addr, int addrlen,
    * has unwound, not from inside the internals it runs.  See
    * ares_deferred_cb_enter(). */
   ares_deferred_cb_enter(channel);
-  ares_gethostbyaddr_nolock(channel, addr, addrlen, family, callback, arg);
+  ares_gethostbyaddr_nolock(channel, addr, addrlen, family, callback, arg, arg);
   ares_deferred_cb_leave(channel);
   ares_channel_unlock(channel);
 }
@@ -139,7 +142,8 @@ static void next_lookup(struct addr_query *aquery)
         }
         aquery->remaining_lookups = p + 1;
         ares_query_nolock(aquery->channel, name, ARES_CLASS_IN,
-                          ARES_REC_TYPE_PTR, addr_callback, aquery, NULL);
+                          ARES_REC_TYPE_PTR, addr_callback, aquery,
+                          aquery->cancel_arg, NULL);
         ares_free(name);
         return;
       case 'f':

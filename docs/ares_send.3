@@ -63,7 +63,8 @@ response code does not reflect the result of the query, just the result of the
 enqueuing of the query.
 
 Completion or failure of the query may happen immediately (even before the
-function returning), or may happen later as network events are processed.
+function returning), may happen later as network events are processed, or may
+happen when cancelled by \fIares_cancel(3)\fP or \fIares_cancel_by_arg(3)\fP.
 
 When the associated callback is called, it is called with a channel lock so care
 must be taken to ensure any processing is minimal to prevent DNS channel stalls.
@@ -157,6 +158,7 @@ does not reflect as much about the response as for other query functions.
 \fBares_send_dnsrec(3)\fP was introduced in c-ares 1.28.0.
 
 .SH SEE ALSO
+.BR ares_cancel_by_arg (3),
 .BR ares_dns_record_create (3),
 .BR ares_process (3),
 .BR ares_search (3),

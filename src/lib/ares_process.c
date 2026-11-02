@@ -1425,7 +1425,7 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
   probe_server->probe_pending = ARES_TRUE;
   ares_send_nolock(channel, probe_server,
                    ARES_SEND_FLAG_NOCACHE | ARES_SEND_FLAG_NORETRY,
-                   query->query, server_probe_cb, NULL, NULL);
+                   query->query, server_probe_cb, NULL, NULL, NULL);
 }
 
 static size_t ares_calc_query_timeout(const ares_query_t   *query,
@@ -1921,8 +1921,9 @@ void ares_free_query(ares_query_t *query)
 {
   ares_detach_query(query);
   /* Zero out some important stuff, to help catch bugs */
-  query->callback = NULL;
-  query->arg      = NULL;
+  query->callback   = NULL;
+  query->arg        = NULL;
+  query->cancel_arg = NULL;
   /* Deallocate the memory associated with the query */
   ares_dns_record_destroy(query->query);
   ares_free(query->qcache_key);
