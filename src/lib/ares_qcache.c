@@ -388,9 +388,10 @@ static unsigned int ares_qcache_calc_minttl(ares_dns_record_t *dnsrec)
       ares_dns_rec_type_t type = ares_dns_rr_get_type(rr);
       unsigned int        ttl  = ares_dns_rr_get_ttl(rr);
 
-      /* TTL is meaningless on these record types */
-      if (type == ARES_REC_TYPE_OPT || type == ARES_REC_TYPE_SOA ||
-          type == ARES_REC_TYPE_SIG) {
+      /* OPT and SIG have no cache TTL. Authority SOAs are handled separately
+       * for negative caching (RFC 2308 Section 5). */
+      if (type == ARES_REC_TYPE_OPT || type == ARES_REC_TYPE_SIG ||
+          (type == ARES_REC_TYPE_SOA && sect == ARES_SECTION_AUTHORITY)) {
         continue;
       }
 

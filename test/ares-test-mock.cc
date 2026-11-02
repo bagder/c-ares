@@ -1495,6 +1495,92 @@ TEST_P(CacheQueriesTest, BlankName) {
   EXPECT_EQ(0, cacheresult.timeouts_);
 }
 
+/* Positive SOA records in the answer or additional section must expire at
+ * their own TTL, including zero. */
+TEST_P(CacheQueriesTest, PositiveSOAExpiresAtRecordTTL)
+{
+  for (bool additional : { false, true }) {
+    for (int ttl : { 0, 1 }) {
+      const std::string name =
+        std::string(additional ? "additional" : "answer") +
+        std::to_string(ttl) + ".example.com";
+      SCOPED_TRACE(name);
+      DNSPacket first;
+      first.set_response()
+        .set_aa()
+        .add_question(new DNSQuestion(name, T_SOA))
+        .add_answer(new DNSSoaRR(name, additional ? 100 : ttl, "ns.example.com",
+                                 "admin.example.com", 1, 3600, 600, 86400,
+                                 100));
+      if (additional) {
+        first.add_additional(new DNSSoaRR("other.example.com", ttl,
+                                          "ns.example.com", "admin.example.com",
+                                          1, 3600, 600, 86400, 100));
+      }
+      DNSPacket second;
+      second.set_response()
+        .set_aa()
+        .add_question(new DNSQuestion(name, T_SOA))
+        .add_answer(new DNSSoaRR(name, 100, "ns.example.com",
+                                 "admin.example.com", 2, 3600, 600, 86400,
+                                 100));
+      EXPECT_CALL(server_, OnRequest(name, T_SOA))
+        .WillOnce(SetReply(&server_, &first))
+        .WillOnce(SetReply(&server_, &second));
+
+      for (unsigned int i = 0; i < 2; i++) {
+        QueryResult result;
+        ares_query_dnsrec(channel_, name.c_str(), ARES_CLASS_IN,
+                          ARES_REC_TYPE_SOA, QueryCallback, &result, NULL);
+        Process();
+        ASSERT_TRUE(result.done_);
+        EXPECT_EQ(ARES_SUCCESS, result.status_);
+        EXPECT_EQ(0U, result.timeouts_);
+        ASSERT_NE(nullptr, result.dnsrec_.dnsrec_);
+        const ares_dns_rr_t *rr = ares_dns_record_rr_get_const(
+          result.dnsrec_.dnsrec_, ARES_SECTION_ANSWER, 0);
+        ASSERT_NE(nullptr, rr);
+        EXPECT_EQ(ARES_REC_TYPE_SOA, ares_dns_rr_get_type(rr));
+        EXPECT_EQ(i + 1, ares_dns_rr_get_u32(rr, ARES_RR_SOA_SERIAL));
+        if (i == 0 && ttl != 0) {
+          ares_sleep_time(2000);
+        }
+      }
+    }
+  }
+}
+
+/* RFC 2308 Section 4 limits MINIMUM to negative caching. An authority SOA
+ * also must not shorten the lifetime of a positive answer. */
+TEST_P(CacheQueriesTest, PositiveSOACacheIgnoresMinimumAndAuthoritySOA)
+{
+  DNSPacket positive;
+  positive.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("positive.example.com", T_SOA))
+    .add_answer(new DNSSoaRR("positive.example.com", 100, "ns.example.com",
+                             "admin.example.com", 1, 3600, 600, 86400, 0))
+    .add_auth(new DNSSoaRR("example.com", 0, "ns.example.com",
+                           "admin.example.com", 1, 3600, 600, 86400, 0));
+  EXPECT_CALL(server_, OnRequest("positive.example.com", T_SOA))
+    .WillOnce(SetReply(&server_, &positive));
+
+  for (size_t i = 0; i < 2; i++) {
+    QueryResult result;
+    ares_query_dnsrec(channel_, "positive.example.com", ARES_CLASS_IN,
+                      ARES_REC_TYPE_SOA, QueryCallback, &result, NULL);
+    Process();
+    ASSERT_TRUE(result.done_);
+    EXPECT_EQ(ARES_SUCCESS, result.status_);
+    ASSERT_NE(nullptr, result.dnsrec_.dnsrec_);
+    const ares_dns_rr_t *rr = ares_dns_record_rr_get_const(
+      result.dnsrec_.dnsrec_, ARES_SECTION_ANSWER, 0);
+    ASSERT_NE(nullptr, rr);
+    EXPECT_EQ(ARES_REC_TYPE_SOA, ares_dns_rr_get_type(rr));
+    EXPECT_EQ(1U, ares_dns_rr_get_u32(rr, ARES_RR_SOA_SERIAL));
+  }
+}
+
 TEST_P(CacheQueriesTest, SearchDomainsCache) {
   DNSPacket nofirst;
   nofirst.set_response().set_aa().set_rcode(NXDOMAIN)
