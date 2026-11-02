@@ -889,6 +889,30 @@ TEST_F(LibraryTest, IDNAMapTable) {
   }
 }
 
+TEST_F(LibraryTest, SysConfigTimeoutOverflow) {
+#if UINT_MAX >= 4294967295U
+  ares_sysconfig_t sysconfig;
+  memset(&sysconfig, 0, sizeof(sysconfig));
+
+  /* UINT_MAX / 1000 is the largest resolver timeout that can be converted
+   * from seconds to milliseconds without wrapping the unsigned result. */
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_sysconfig_set_options(&sysconfig, "timeout:4294967"));
+  EXPECT_EQ((size_t)4294967000U, sysconfig.timeout_ms);
+
+  /* Oversized values are malformed options and must not replace the valid
+   * timeout with a wrapped, unexpectedly short value. */
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_sysconfig_set_options(&sysconfig, "timeout:4294968"));
+  EXPECT_EQ((size_t)4294967000U, sysconfig.timeout_ms);
+
+  memset(&sysconfig, 0, sizeof(sysconfig));
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_sysconfig_set_options(&sysconfig, "retrans:4294967295"));
+  EXPECT_EQ((size_t)0, sysconfig.timeout_ms);
+#endif
+}
+
 TEST_F(LibraryTest, SysConfigDomainsIDNA) {
   ares_sysconfig_t sysconfig;
   memset(&sysconfig, 0, sizeof(sysconfig));

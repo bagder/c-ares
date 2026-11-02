@@ -27,6 +27,8 @@
 
 #include "ares_private.h"
 
+#include <limits.h>
+
 #ifdef HAVE_SYS_PARAM_H
 #  include <sys/param.h>
 #endif
@@ -489,8 +491,8 @@ static ares_status_t
 /* Apple does not allow configuration of retrans, so this is a dummy value
  * that is extremely high (5s) */
 #  ifndef __APPLE__
-    if (res.retrans > 0) {
-      sysconfig->timeout_ms = (unsigned int)res.retrans * 1000;
+    if (res.retrans > 0 && (unsigned long)res.retrans <= UINT_MAX / 1000U) {
+      sysconfig->timeout_ms = (unsigned int)res.retrans * 1000U;
     }
 #  endif
   }

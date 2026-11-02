@@ -430,11 +430,11 @@ static ares_status_t process_option(ares_sysconfig_t *sysconfig,
   if (ares_streq(key, "ndots")) {
     sysconfig->ndots = valint;
   } else if (ares_streq(key, "retrans") || ares_streq(key, "timeout")) {
-    if (valint == 0) {
+    if (valint == 0 || valint > UINT_MAX / 1000U) {
       status = ARES_EFORMERR;
       goto done;
     }
-    sysconfig->timeout_ms = valint * 1000;
+    sysconfig->timeout_ms = valint * 1000U;
   } else if (ares_streq(key, "retry") || ares_streq(key, "attempts")) {
     if (valint == 0 || valint > 255) {
       /* A bogus attempt count must not become an effectively unbounded
