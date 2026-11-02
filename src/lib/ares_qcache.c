@@ -432,6 +432,35 @@ static unsigned int ares_qcache_soa_minimum(ares_dns_record_t *dnsrec)
   return 0;
 }
 
+/* RFC 2308 Section 2.2: NODATA has no relevant answers, but may contain a
+ * CNAME chain in the answer section. */
+static ares_bool_t ares_qcache_is_nodata(const ares_dns_record_t *dnsrec)
+{
+  ares_dns_rec_type_t qtype;
+  size_t              i;
+
+  if (ares_dns_record_query_get(dnsrec, 0, NULL, &qtype, NULL) !=
+      ARES_SUCCESS) {
+    return ARES_FALSE; /* LCOV_EXCL_LINE: DefensiveCoding */
+  }
+
+  for (i = 0; i < ares_dns_record_rr_cnt(dnsrec, ARES_SECTION_ANSWER); i++) {
+    const ares_dns_rr_t *rr =
+      ares_dns_record_rr_get_const(dnsrec, ARES_SECTION_ANSWER, i);
+    ares_dns_rec_type_t type = ares_dns_rr_get_type(rr);
+
+    if (type == ARES_REC_TYPE_RAW_RR) {
+      type = (ares_dns_rec_type_t)ares_dns_rr_get_u16(rr, ARES_RR_RAW_RR_TYPE);
+    }
+
+    if (qtype == ARES_REC_TYPE_ANY || type == qtype) {
+      return ARES_FALSE;
+    }
+  }
+
+  return ARES_TRUE;
+}
+
 /* On success, takes ownership of dnsrec */
 static ares_status_t ares_qcache_insert_int(ares_qcache_t        *qcache,
                                             ares_dns_record_t    *qresp,
@@ -457,9 +486,23 @@ static ares_status_t ares_qcache_insert_int(ares_qcache_t        *qcache,
     return ARES_ENOTIMP;
   }
 
-  /* Look at SOA for NXDOMAIN for minimum */
-  if (rcode == ARES_RCODE_NXDOMAIN) {
+  /* Determine the TTL to cache under.  For a negative answer -- NXDOMAIN, or a
+   * NOERROR/NODATA response that carries no records answering the question --
+   * RFC 2308 Section 5 says the negative-cache TTL is derived from the SOA
+   * record in the authority section, not from a default.
+   * ares_qcache_soa_minimum() returns 0 when no SOA is present, which (via the
+   * ttl == 0 check below) leaves the negative answer uncached so the next
+   * lookup re-queries the wire. */
+  if (rcode == ARES_RCODE_NXDOMAIN || ares_qcache_is_nodata(qresp)) {
+    unsigned int minttl = ares_qcache_calc_minttl(qresp);
+
     ttl = ares_qcache_soa_minimum(qresp);
+    /* Also bound it by the TTL of every other record in the response, so a
+     * CNAME chain leading to the negative answer does not outlive its own
+     * TTL. */
+    if (minttl < ttl) {
+      ttl = minttl;
+    }
   } else {
     ttl = ares_qcache_calc_minttl(qresp);
   }

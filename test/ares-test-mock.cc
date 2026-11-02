@@ -639,6 +639,40 @@ class CacheQueriesTest
     opts->qcache_max_ttl = 3600;
     return opts;
   }
+
+  void CheckNegativeCacheRecovery(DNSPacket *negative, int status,
+                                  unsigned int delay_ms)
+  {
+    DNSPacket ok;
+    ok.set_response()
+      .set_aa()
+      .add_question(new DNSQuestion("nodata.example.com", T_A))
+      /* Do not cache the recovery response between cases. */
+      .add_answer(new DNSARR("nodata.example.com", 0, { 2, 3, 4, 5 }));
+    EXPECT_CALL(server_, OnRequest("nodata.example.com", T_A))
+      .WillOnce(SetReply(&server_, negative))
+      .WillOnce(SetReply(&server_, &ok));
+
+    HostResult result1;
+    ares_gethostbyname(channel_, "nodata.example.com.", AF_INET, HostCallback,
+                       &result1);
+    Process();
+    ASSERT_TRUE(result1.done_);
+    EXPECT_EQ(status, result1.status_);
+
+    ares_sleep_time(delay_ms);
+
+    HostResult result2;
+    ares_gethostbyname(channel_, "nodata.example.com.", AF_INET, HostCallback,
+                       &result2);
+    Process();
+    ASSERT_TRUE(result2.done_);
+    EXPECT_EQ(ARES_SUCCESS, result2.status_);
+    std::stringstream ss;
+    ss << result2.host_;
+    EXPECT_EQ("{'nodata.example.com' aliases=[] addrs=[2.3.4.5]}", ss.str());
+  }
+
  private:
   struct ares_options opts_;
 };
@@ -1095,6 +1129,172 @@ TEST_P(CacheQueriesTest, GetHostByNameCache) {
   EXPECT_EQ("{'www.google.com' aliases=[] addrs=[2.3.4.5]}", ss2.str());
 
   EXPECT_EQ(1, sock_cb_count);
+}
+
+/* RFC 2308 Section 5 says negative responses without an SOA SHOULD NOT be
+ * cached. The server returns NODATA first and an address second; the second
+ * lookup must reach the wire and succeed. */
+TEST_P(CacheQueriesTest, NoDataNotCachedWithoutSOA)
+{
+  DNSPacket nodata;
+  nodata.set_response().set_aa().add_question(
+    new DNSQuestion("nodata.example.com", T_A));
+  CheckNegativeCacheRecovery(&nodata, ARES_ENODATA, 0);
+}
+
+TEST_P(CacheQueriesTest, NoDataWithSOACached)
+{
+  for (bool cname : { false, true }) {
+    const char *name = cname ? "alias.example.com" : "plain.example.com";
+    SCOPED_TRACE(name);
+    DNSPacket nodata;
+    nodata.set_response().set_aa().add_question(new DNSQuestion(name, T_A));
+    if (cname) {
+      nodata.add_answer(new DNSCnameRR(name, 100, "target.example.com"));
+    }
+    nodata.add_auth(new DNSSoaRR("example.com", 100, "ns.example.com",
+                                 "admin.example.com", 1, 3600, 600, 86400,
+                                 100));
+    EXPECT_CALL(server_, OnRequest(name, T_A))
+      .WillOnce(SetReply(&server_, &nodata));
+
+    for (size_t i = 0; i < 2; i++) {
+      HostResult  result;
+      std::string query = std::string(name) + ".";
+      ares_gethostbyname(channel_, query.c_str(), AF_INET, HostCallback,
+                         &result);
+      Process();
+      ASSERT_TRUE(result.done_);
+      EXPECT_EQ(ARES_ENODATA, result.status_);
+    }
+  }
+}
+
+/* RFC 2308 Section 5 bounds the negative TTL by both SOA TTL and MINIMUM. */
+TEST_P(CacheQueriesTest, NoDataExpiresWithSOA)
+{
+  for (const auto &ttls : { std::make_pair(1, 100), std::make_pair(100, 1) }) {
+    SCOPED_TRACE(testing::PrintToString(ttls));
+    DNSPacket nodata;
+    nodata.set_response()
+      .set_aa()
+      .add_question(new DNSQuestion("nodata.example.com", T_A))
+      .add_auth(new DNSSoaRR("example.com", ttls.first, "ns.example.com",
+                             "admin.example.com", 1, 3600, 600, 86400,
+                             ttls.second));
+    CheckNegativeCacheRecovery(&nodata, ARES_ENODATA, 2000);
+  }
+}
+
+/* RFC 2308 Section 2.2 allows a CNAME chain in a NODATA answer. */
+TEST_P(CacheQueriesTest, CnameNoDataExpiresWithSOA)
+{
+  for (const auto &ttls : { std::make_pair(1, 100), std::make_pair(100, 1) }) {
+    SCOPED_TRACE(testing::PrintToString(ttls));
+    DNSPacket nodata;
+    nodata.set_response()
+      .set_aa()
+      .add_question(new DNSQuestion("nodata.example.com", T_A))
+      .add_answer(
+        new DNSCnameRR("nodata.example.com", 100, "target.example.com"))
+      .add_auth(new DNSSoaRR("example.com", ttls.first, "ns.example.com",
+                             "admin.example.com", 1, 3600, 600, 86400,
+                             ttls.second));
+    CheckNegativeCacheRecovery(&nodata, ARES_ENODATA, 2000);
+  }
+}
+
+TEST_P(CacheQueriesTest, CnameNegativeAnswerExpiresAtCnameTTL)
+{
+  for (bool nxdomain : { false, true }) {
+    SCOPED_TRACE(nxdomain);
+    DNSPacket negative;
+    negative.set_response()
+      .set_aa()
+      .set_rcode(nxdomain ? NXDOMAIN : NOERROR)
+      .add_question(new DNSQuestion("nodata.example.com", T_A))
+      .add_answer(new DNSCnameRR("nodata.example.com", 1, "target.example.com"))
+      .add_auth(new DNSSoaRR("example.com", 100, "ns.example.com",
+                             "admin.example.com", 1, 3600, 600, 86400, 100));
+    CheckNegativeCacheRecovery(&negative,
+                               nxdomain ? ARES_ENOTFOUND : ARES_ENODATA, 2000);
+  }
+}
+
+TEST_P(CacheQueriesTest, CnameNoDataNotCachedWithoutSOA)
+{
+  DNSPacket nodata;
+  nodata.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("nodata.example.com", T_A))
+    .add_answer(
+      new DNSCnameRR("nodata.example.com", 100, "target.example.com"));
+  CheckNegativeCacheRecovery(&nodata, ARES_ENODATA, 0);
+}
+
+/* CNAME and ANY queries with a CNAME answer are positive cache entries. An A
+ * answer after a CNAME must also remain cacheable without an authority SOA. */
+TEST_P(CacheQueriesTest, CnamePositiveAnswersCached)
+{
+  for (int qtype : { T_CNAME, T_ANY, T_A }) {
+    SCOPED_TRACE(qtype);
+    DNSPacket positive;
+    positive.set_response()
+      .set_aa()
+      .add_question(new DNSQuestion("positive.example.com", qtype))
+      .add_answer(
+        new DNSCnameRR("positive.example.com", 100, "target.example.com"));
+    if (qtype == T_A) {
+      positive.add_answer(
+        new DNSARR("target.example.com", 100, { 2, 3, 4, 5 }));
+    }
+    EXPECT_CALL(server_, OnRequest("positive.example.com", qtype))
+      .WillOnce(SetReply(&server_, &positive));
+
+    for (size_t i = 0; i < 2; i++) {
+      QueryResult result;
+      ares_query_dnsrec(channel_, "positive.example.com", ARES_CLASS_IN,
+                        static_cast<ares_dns_rec_type_t>(qtype), QueryCallback,
+                        &result, NULL);
+      Process();
+      ASSERT_TRUE(result.done_);
+      EXPECT_EQ(ARES_SUCCESS, result.status_);
+      ASSERT_NE(nullptr, result.dnsrec_.dnsrec_);
+      EXPECT_EQ(
+        qtype == T_A ? 2U : 1U,
+        ares_dns_record_rr_cnt(result.dnsrec_.dnsrec_, ARES_SECTION_ANSWER));
+    }
+  }
+}
+
+/* Unsupported RR types are stored as RAW_RR; their wire type still matches
+ * the question and must not be mistaken for NODATA. */
+TEST_P(CacheQueriesTest, RawAnswerCached)
+{
+  DNSPacket positive;
+  positive.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("raw.example.com", T_NULL))
+    .add_answer(new DNSAddressRR("raw.example.com", T_NULL, 100,
+                                 std::vector<byte>{ 1, 2, 3, 4 }));
+  EXPECT_CALL(server_, OnRequest("raw.example.com", T_NULL))
+    .WillOnce(SetReply(&server_, &positive));
+
+  for (size_t i = 0; i < 2; i++) {
+    QueryResult result;
+    ares_query_dnsrec(channel_, "raw.example.com", ARES_CLASS_IN,
+                      static_cast<ares_dns_rec_type_t>(T_NULL), QueryCallback,
+                      &result, NULL);
+    Process();
+    ASSERT_TRUE(result.done_);
+    EXPECT_EQ(ARES_SUCCESS, result.status_);
+    ASSERT_NE(nullptr, result.dnsrec_.dnsrec_);
+    const ares_dns_rr_t *rr = ares_dns_record_rr_get_const(
+      result.dnsrec_.dnsrec_, ARES_SECTION_ANSWER, 0);
+    ASSERT_NE(nullptr, rr);
+    EXPECT_EQ(ARES_REC_TYPE_RAW_RR, ares_dns_rr_get_type(rr));
+    EXPECT_EQ(T_NULL, ares_dns_rr_get_u16(rr, ARES_RR_RAW_RR_TYPE));
+  }
 }
 
 #define TCPPARALLELLOOKUPS 32
