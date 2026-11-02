@@ -426,6 +426,8 @@ int ares_strncmp(const char *a, const char *b, size_t n)
 
 int ares_strcasecmp(const char *a, const char *b)
 {
+  size_t i;
+
   if (a == NULL && b == NULL) {
     return 0;
   }
@@ -444,33 +446,26 @@ int ares_strcasecmp(const char *a, const char *b)
     return -1;
   }
 
-#if defined(HAVE_STRCASECMP)
-  return strcasecmp(a, b);
-#elif defined(HAVE_STRCMPI)
-  return strcmpi(a, b);
-#elif defined(HAVE_STRICMP)
-  return stricmp(a, b);
-#else
-  {
-    size_t i;
-
-    for (i = 0; i < (size_t)-1; i++) {
-      int c1 = ares_tolower(a[i]);
-      int c2 = ares_tolower(b[i]);
-      if (c1 != c2) {
-        return c1 - c2;
-      }
-      if (!c1) {
-        break;
-      }
+  /* Fold with ares_tolower(), not libc strcasecmp()/stricmp(): those follow
+   * LC_CTYPE, and in the Turkish and Azeri locales 'I' does not fold to 'i'.
+   * DNS names are case-insensitive over ASCII only (RFC 4343, section 3). */
+  for (i = 0; i < (size_t)-1; i++) {
+    int c1 = ares_tolower((unsigned char)a[i]);
+    int c2 = ares_tolower((unsigned char)b[i]);
+    if (c1 != c2) {
+      return c1 - c2;
+    }
+    if (!c1) {
+      break;
     }
   }
   return 0;
-#endif
 }
 
 int ares_strncasecmp(const char *a, const char *b, size_t n)
 {
+  size_t i;
+
   if (n == 0) {
     return 0;
   }
@@ -493,29 +488,18 @@ int ares_strncasecmp(const char *a, const char *b, size_t n)
     return -1;
   }
 
-#if defined(HAVE_STRNCASECMP)
-  return strncasecmp(a, b, n);
-#elif defined(HAVE_STRNCMPI)
-  return strncmpi(a, b, n);
-#elif defined(HAVE_STRNICMP)
-  return strnicmp(a, b, n);
-#else
-  {
-    size_t i;
-
-    for (i = 0; i < n; i++) {
-      int c1 = ares_tolower(a[i]);
-      int c2 = ares_tolower(b[i]);
-      if (c1 != c2) {
-        return c1 - c2;
-      }
-      if (!c1) {
-        break;
-      }
+  /* ASCII-only fold, see ares_strcasecmp() */
+  for (i = 0; i < n; i++) {
+    int c1 = ares_tolower((unsigned char)a[i]);
+    int c2 = ares_tolower((unsigned char)b[i]);
+    if (c1 != c2) {
+      return c1 - c2;
+    }
+    if (!c1) {
+      break;
     }
   }
   return 0;
-#endif
 }
 
 ares_bool_t ares_strcaseeq(const char *a, const char *b)

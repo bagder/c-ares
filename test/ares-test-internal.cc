@@ -26,7 +26,9 @@
 #include "ares-test.h"
 #include "dns-proto.h"
 
+#include <cctype>
 #include <climits>
+#include <clocale>
 #include <cstdint>
 #include <stdio.h>
 
@@ -121,6 +123,69 @@ TEST_F(LibraryTest, StrParseUint) {
   EXPECT_FALSE(ares_str_parse_uint("-1", UINT_MAX, &v));         // sign wrap
   EXPECT_FALSE(ares_str_parse_uint("", UINT_MAX, &v));
   EXPECT_FALSE(ares_str_parse_uint(NULL, UINT_MAX, &v));
+}
+
+// DNS names are case-insensitive over ASCII only, whatever the process locale
+// says (RFC 4343, section 3).
+static void CheckAsciiCaseFold()
+{
+  for (char c = 'A'; c <= 'Z'; c++) {
+    char upper[2] = { c, 0 };
+    char lower[2] = { (char)(c + ('a' - 'A')), 0 };
+    EXPECT_EQ(0, ares_strcasecmp(upper, lower)) << upper;
+    EXPECT_EQ(0, ares_strcasecmp(lower, upper)) << upper;
+    EXPECT_EQ(0, ares_strncasecmp(upper, lower, 1)) << upper;
+    EXPECT_TRUE(ares_strcaseeq(upper, lower)) << upper;
+  }
+  EXPECT_TRUE(ares_strcaseeq("WIKI.ORG", "wiki.org"));
+  EXPECT_TRUE(ares_strcaseeq("wiki.org", "WIKI.ORG"));
+  EXPECT_TRUE(ares_strcaseeq_max("WIKI.ORG", "wiki.xyz", 5));
+  EXPECT_EQ(0, ares_strncasecmp("WIKI.ORG", "wiki.xyz", 5));
+  EXPECT_EQ(0, ares_strncasecmp("wiki", "WIKI", 10));
+  EXPECT_FALSE(ares_strcaseeq("wiki.org", "wikj.org"));
+  EXPECT_LT(ares_strcasecmp("a", "B"), 0);
+  EXPECT_GT(ares_strcasecmp("B", "a"), 0);
+
+  // Only A-Z fold.  RFC 4343 notes that 0xDD and 0xFD do NOT match, although
+  // ISO-8859-1 treats them as a letter pair.
+  EXPECT_FALSE(ares_strcaseeq("\xDD", "\xFD"));
+  EXPECT_NE(0, ares_strcasecmp("\xDD", "\xFD"));
+  EXPECT_NE(0, ares_strncasecmp("\xDD", "\xFD", 1));
+}
+
+// In the Turkish and Azeri locales libc does not fold 'I' to 'i', so
+// strcasecmp("WIKI.ORG", "wiki.org") is non-zero there.  Needs one of those
+// locales to be installed; otherwise only the plain ASCII checks run.
+TEST_F(LibraryTest, StrCaseFoldIgnoresLocale)
+{
+  static const char * const turkic[] = { "tr_TR.UTF-8", "tr_TR.utf8", "tr_TR",
+                                         "az_AZ.UTF-8", "az_AZ.utf8", "az_AZ",
+                                         NULL };
+  const char               *current  = setlocale(LC_CTYPE, NULL);
+  std::string               saved    = (current != NULL) ? current : "C";
+  size_t                    checked  = 0;
+
+  CheckAsciiCaseFold();
+
+  for (size_t i = 0; turkic[i] != NULL; i++) {
+    if (setlocale(LC_CTYPE, turkic[i]) == NULL) {
+      continue;
+    }
+    // Only meaningful where libc really folds differently from ASCII.
+    if (tolower('I') == 'i') {
+      continue;
+    }
+    SCOPED_TRACE(turkic[i]);
+    checked++;
+    CheckAsciiCaseFold();
+  }
+  setlocale(LC_CTYPE, saved.c_str());
+
+  if (checked == 0 && verbose) {
+    std::cerr << "Skipping Turkish locale checks: no tr_TR or az_AZ locale "
+                 "installed"
+              << std::endl;
+  }
 }
 
 void CheckPtoN4(int size, unsigned int value, const char *input) {
