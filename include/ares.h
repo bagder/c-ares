@@ -642,7 +642,9 @@ struct ares_socket_functions_ex {
    * be opened in non-blocking mode (so that reads and writes never block).
    * Recommended other options would be to disable signals on write errors
    * (SO_NOSIGPIPE), Disable the Nagle algorithm on SOCK_STREAM (TCP_NODELAY),
-   * and to automatically close file descriptors on exec (FD_CLOEXEC).
+   * to automatically close file descriptors on exec (FD_CLOEXEC), and on
+   * Linux to report ICMP errors such as host unreachable on SOCK_DGRAM
+   * (IP_RECVERR, or IPV6_RECVERR for AF_INET6).
    *
    *  \param[in] domain      Socket domain. Valid values are AF_INET, AF_INET6.
    *  \param[in] type       Socket type. Valid values are SOCK_STREAM (tcp) and

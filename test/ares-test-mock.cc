@@ -326,6 +326,116 @@ TEST_P(MockChannelTest, SockFailCallback) {
   EXPECT_EQ(ARES_ECONNREFUSED, result.status_);
 }
 
+#if defined(__linux__) && defined(IP_RECVERR) && defined(IPV6_RECVERR) && \
+  defined(SO_DOMAIN)
+static int RecvErrCallback(ares_socket_t fd, int type, void *data)
+{
+  int      *recverr = (int *)data;
+  int       domain  = 0;
+  int       on      = 0;
+  socklen_t len     = sizeof(domain);
+  if (type != SOCK_DGRAM ||
+      getsockopt(fd, SOL_SOCKET, SO_DOMAIN, (void *)&domain, &len) != 0) {
+    return ARES_SUCCESS;
+  }
+  len = sizeof(on);
+  if (domain == AF_INET6) {
+    getsockopt(fd, IPPROTO_IPV6, IPV6_RECVERR, (void *)&on, &len);
+  } else {
+    getsockopt(fd, IPPROTO_IP, IP_RECVERR, (void *)&on, &len);
+  }
+  *recverr = on;
+  return ARES_SUCCESS;
+}
+
+// UDP sockets ask for ICMP errors, so that a server behind an unreachable
+// route fails the read at once instead of after the query timeout.
+TEST_P(MockUDPChannelTest, UDPSocketsGetRecvErr)
+{
+  DNSPacket rsp;
+  rsp.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A))
+    .add_answer(new DNSARR("www.google.com", 100, { 2, 3, 4, 5 }));
+  EXPECT_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillOnce(SetReply(&server_, &rsp));
+
+  int recverr = -1;
+  ares_set_socket_callback(channel_, RecvErrCallback, &recverr);
+
+  HostResult result;
+  ares_gethostbyname(channel_, "www.google.com.", AF_INET, HostCallback,
+                     &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(1, recverr);
+}
+#endif
+
+static int nobufs_send = 0;
+
+// Fails the n-th send with ENOBUFS, as Linux does for a UDP socket with
+// IP_RECVERR when a queue below the socket drops the datagram.
+static ares_ssize_t SendvNoBufs(ares_socket_t socket, const struct iovec *vec,
+                                int len, void *user_data)
+{
+  (void)len;
+  (void)user_data;
+  if (--nobufs_send == 0) {
+#ifdef USE_WINSOCK
+    WSASetLastError(WSAENOBUFS);
+#else
+    errno = ENOBUFS;
+#endif
+    return -1;
+  }
+  return send(socket, (const char *)vec[0].iov_base, vec[0].iov_len, 0);
+}
+
+// A dropped datagram costs only its own query a timeout.  The other query on
+// the connection is not sent again.
+TEST_P(MockUDPChannelTest, SendNoBufsDropsOnlyThatQuery)
+{
+  DNSPacket rsp1;
+  rsp1.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A))
+    .add_answer(new DNSARR("www.google.com", 100, { 2, 3, 4, 5 }));
+  DNSPacket rsp2;
+  rsp2.set_response()
+    .set_aa()
+    .add_question(new DNSQuestion("www.example.com", T_A))
+    .add_answer(new DNSARR("www.example.com", 100, { 6, 7, 8, 9 }));
+  EXPECT_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillOnce(SetReply(&server_, &rsp1));
+  EXPECT_CALL(server_, OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(&server_, &rsp2));
+
+  ares_socket_functions sock_funcs;
+  memset(&sock_funcs, 0, sizeof(sock_funcs));
+  sock_funcs.asendv = SendvNoBufs;
+  ares_set_socket_functions(channel_, &sock_funcs, NULL);
+  nobufs_send = 2;
+
+  HostResult result1;
+  HostResult result2;
+  ares_gethostbyname(channel_, "www.google.com.", AF_INET, HostCallback,
+                     &result1);
+  ares_gethostbyname(channel_, "www.example.com.", AF_INET, HostCallback,
+                     &result2);
+  Process();
+  EXPECT_TRUE(result1.done_);
+  EXPECT_EQ(0, result1.timeouts_);
+  std::stringstream ss1;
+  ss1 << result1.host_;
+  EXPECT_EQ("{'www.google.com' aliases=[] addrs=[2.3.4.5]}", ss1.str());
+  EXPECT_TRUE(result2.done_);
+  EXPECT_EQ(1, result2.timeouts_);
+  std::stringstream ss2;
+  ss2 << result2.host_;
+  EXPECT_EQ("{'www.example.com' aliases=[] addrs=[6.7.8.9]}", ss2.str());
+}
+
 static int sock_config_cb_count = 0;
 static int SocketConfigureCallback(ares_socket_t fd, int type, void *data) {
   int rc = *(int*)data;

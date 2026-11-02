@@ -250,6 +250,25 @@ static ares_socket_t default_asocket(int domain, int type, int protocol,
 #endif
   }
 
+#if defined(__linux__) && defined(IP_RECVERR) && defined(IPV6_RECVERR)
+  /* Without IP_RECVERR, Linux passes only some ICMP errors, such as port
+   * unreachable, to a connected UDP socket, and drops network and host
+   * unreachable.  A query to a server behind an unreachable route then waits
+   * for its timeout.  With it, the next read or write on the socket fails as
+   * soon as the ICMP error arrives, and the query moves on to the next
+   * server.  It also makes a send fail with ENOBUFS when a queue below the
+   * socket drops the datagram, which Linux otherwise reports as sent;
+   * ares_conn_flush() treats that as a dropped datagram. */
+  if (type == SOCK_DGRAM) {
+    int on = 1;
+    if (domain == PF_INET6) {
+      (void)setsockopt(s, IPPROTO_IPV6, IPV6_RECVERR, (void *)&on, sizeof(on));
+    } else {
+      (void)setsockopt(s, IPPROTO_IP, IP_RECVERR, (void *)&on, sizeof(on));
+    }
+  }
+#endif
+
 #if defined(IPV6_V6ONLY) && defined(USE_WINSOCK)
   /* Support for IPv4-mapped IPv6 addresses.
    * Linux kernel, NetBSD, FreeBSD and Darwin: default is off;

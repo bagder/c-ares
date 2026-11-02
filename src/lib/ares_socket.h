@@ -136,6 +136,7 @@ typedef enum {
   ARES_CONN_ERR_INVALID      = 15, /*!< Invalid Usage */
   ARES_CONN_ERR_TOOLARGE     = 16, /*!< Request size too large */
   ARES_CONN_ERR_NOTIMP       = 17, /*!< Not implemented */
+  ARES_CONN_ERR_NOBUFS       = 18, /*!< No buffer space available */
   ARES_CONN_ERR_FAILURE      = 99  /*!< Generic failure */
 } ares_conn_err_t;
 

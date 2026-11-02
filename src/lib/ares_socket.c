@@ -90,6 +90,8 @@ static ares_conn_err_t ares_socket_deref_error(int err)
       return ARES_CONN_ERR_AFNOSUPPORT;
     case EADDRNOTAVAIL:
       return ARES_CONN_ERR_BADADDR;
+    case ENOBUFS:
+      return ARES_CONN_ERR_NOBUFS;
     default:
       break;
   }
