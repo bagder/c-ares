@@ -78,15 +78,15 @@ static unsigned int take8(fuzz_cursor_t *c)
 
 static unsigned int take16(fuzz_cursor_t *c)
 {
-  unsigned int v = (take8(c) << 8);
-  v |= take8(c);
+  unsigned int v  = (take8(c) << 8);
+  v              |= take8(c);
   return v;
 }
 
 static unsigned int take32(fuzz_cursor_t *c)
 {
-  unsigned int v = ((unsigned int)take16(c) << 16);
-  v |= take16(c);
+  unsigned int v  = ((unsigned int)take16(c) << 16);
+  v              |= take16(c);
   return v;
 }
 
@@ -105,7 +105,7 @@ static void take_str(fuzz_cursor_t *c, char *buf, unsigned int maxlen)
   for (i = 0; i < n; i++) {
     buf[i] = (char)c->data[c->pos + i];
   }
-  buf[n] = 0;
+  buf[n]  = 0;
   c->pos += n;
 }
 
@@ -115,11 +115,11 @@ static void take_str(fuzz_cursor_t *c, char *buf, unsigned int maxlen)
  * after the run. */
 extern char **environ;
 
-static char  *g_env_strings[8];  /* our allocated NAME=VALUE entries */
-static char **g_env_slots[8];    /* slots of replaced entries (orig array) */
-static char  *g_env_old[8];      /* original values of replaced entries */
-static char **g_env_fresh        = NULL; /* appended array, if any */
-static char **g_orig_environ     = NULL;
+static char  *g_env_strings[8]; /* our allocated NAME=VALUE entries */
+static char **g_env_slots[8];   /* slots of replaced entries (orig array) */
+static char  *g_env_old[8];     /* original values of replaced entries */
+static char **g_env_fresh    = NULL; /* appended array, if any */
+static char **g_orig_environ = NULL;
 static size_t g_env_count;
 
 static void fuzz_setenv(const char *name, const char *value)
@@ -156,7 +156,7 @@ static void fuzz_setenv(const char *name, const char *value)
 
   /* Name not present: append via a fresh array. */
   {
-    size_t n = i;
+    size_t n     = i;
     char **fresh = malloc((n + 2) * sizeof(*fresh));
     if (fresh == NULL) {
       free(entry);
@@ -213,26 +213,26 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size);
 
 int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
 {
-  fuzz_cursor_t                        c;
-  struct ares_options                  opts;
-  struct ares_options                  saved;
-  struct ares_server_failover_options  failover;
-  ares_channel_t                      *channel = NULL;
-  ares_channel_t                      *duped   = NULL;
-  int                                  optmask = 0;
-  int                                  savedmask = 0;
-  unsigned int                         mode;
-  char                                 resopt[MAX_ENV_LEN + 1];
-  char                                 localdomain[MAX_ENV_LEN + 1];
-  static char                         *domains[4];
-  static char                          domain0[MAX_DOMAIN_LEN + 1];
-  static char                          domain1[MAX_DOMAIN_LEN + 1];
-  static char                          domain2[MAX_DOMAIN_LEN + 1];
-  static char                          domain3[MAX_DOMAIN_LEN + 1];
-  static char                          lookups[5];
-  static char                          devname[MAX_DEV_LEN + 1];
-  unsigned char                        ip6[16];
-  unsigned int                         i;
+  fuzz_cursor_t                       c;
+  struct ares_options                 opts;
+  struct ares_options                 saved;
+  struct ares_server_failover_options failover;
+  ares_channel_t                     *channel   = NULL;
+  ares_channel_t                     *duped     = NULL;
+  int                                 optmask   = 0;
+  int                                 savedmask = 0;
+  unsigned int                        mode;
+  char                                resopt[MAX_ENV_LEN + 1];
+  char                                localdomain[MAX_ENV_LEN + 1];
+  static char                        *domains[4];
+  static char                         domain0[MAX_DOMAIN_LEN + 1];
+  static char                         domain1[MAX_DOMAIN_LEN + 1];
+  static char                         domain2[MAX_DOMAIN_LEN + 1];
+  static char                         domain3[MAX_DOMAIN_LEN + 1];
+  static char                         lookups[5];
+  static char                         devname[MAX_DEV_LEN + 1];
+  unsigned char                       ip6[16];
+  unsigned int                        i;
 
   memset(&c, 0, sizeof(c));
   c.data = data;
@@ -259,30 +259,30 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
   }
 
   if (mode & 0x01u) {
-    opts.flags         = (int)take8(&c);
-    optmask           |= ARES_OPT_FLAGS;
-    opts.timeout       = (int)(take16(&c) % 5000u) + 1;
-    optmask           |= ARES_OPT_TIMEOUTMS;
-    opts.tries         = (int)(take8(&c) % 8u) + 1;
-    optmask           |= ARES_OPT_TRIES;
-    opts.ndots         = (int)(take8(&c) % 16u);
-    optmask           |= ARES_OPT_NDOTS;
-    opts.udp_port      = (unsigned short)take16(&c);
-    optmask           |= ARES_OPT_UDP_PORT;
-    opts.tcp_port      = (unsigned short)take16(&c);
-    optmask           |= ARES_OPT_TCP_PORT;
-    opts.ednspsz       = (int)(512u << (take8(&c) & 0x03u));
-    optmask           |= ARES_OPT_EDNSPSZ;
-    opts.udp_max_queries = (int)(take8(&c) % 100u) + 1;
-    optmask           |= ARES_OPT_UDP_MAX_QUERIES;
-    opts.maxtimeout    = (int)(take16(&c) % 10000u) + 100;
-    optmask           |= ARES_OPT_MAXTIMEOUTMS;
-    opts.qcache_max_ttl = (unsigned int)(take16(&c) % 601u);
-    optmask           |= ARES_OPT_QUERY_CACHE;
-    failover.retry_chance = (unsigned short)take16(&c);
-    failover.retry_delay  = (size_t)(take16(&c) % 1000u) + 1;
-    opts.server_failover_opts = failover;
-    optmask           |= ARES_OPT_SERVER_FAILOVER;
+    opts.flags                 = (int)take8(&c);
+    optmask                   |= ARES_OPT_FLAGS;
+    opts.timeout               = (int)(take16(&c) % 5000u) + 1;
+    optmask                   |= ARES_OPT_TIMEOUTMS;
+    opts.tries                 = (int)(take8(&c) % 8u) + 1;
+    optmask                   |= ARES_OPT_TRIES;
+    opts.ndots                 = (int)(take8(&c) % 16u);
+    optmask                   |= ARES_OPT_NDOTS;
+    opts.udp_port              = (unsigned short)take16(&c);
+    optmask                   |= ARES_OPT_UDP_PORT;
+    opts.tcp_port              = (unsigned short)take16(&c);
+    optmask                   |= ARES_OPT_TCP_PORT;
+    opts.ednspsz               = (int)(512u << (take8(&c) & 0x03u));
+    optmask                   |= ARES_OPT_EDNSPSZ;
+    opts.udp_max_queries       = (int)(take8(&c) % 100u) + 1;
+    optmask                   |= ARES_OPT_UDP_MAX_QUERIES;
+    opts.maxtimeout            = (int)(take16(&c) % 10000u) + 100;
+    optmask                   |= ARES_OPT_MAXTIMEOUTMS;
+    opts.qcache_max_ttl        = (unsigned int)(take16(&c) % 601u);
+    optmask                   |= ARES_OPT_QUERY_CACHE;
+    failover.retry_chance      = (unsigned short)take16(&c);
+    failover.retry_delay       = (size_t)(take16(&c) % 1000u) + 1;
+    opts.server_failover_opts  = failover;
+    optmask                   |= ARES_OPT_SERVER_FAILOVER;
 
     opts.ndomains = (int)(take8(&c) % 4u);
     for (i = 0; i < 4; i++) {
@@ -308,11 +308,11 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
           break;
       }
     }
-    opts.domains = domains;
-    optmask     |= ARES_OPT_DOMAINS;
+    opts.domains  = domains;
+    optmask      |= ARES_OPT_DOMAINS;
     take_str(&c, lookups, 4);
-    opts.lookups = lookups;
-    optmask     |= ARES_OPT_LOOKUPS;
+    opts.lookups  = lookups;
+    optmask      |= ARES_OPT_LOOKUPS;
 
     ares_init_options(&channel, &opts, optmask);
   } else {
@@ -321,7 +321,7 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
 
   if (channel != NULL) {
     if (mode & 0x08u) {
-      unsigned int    raw = take32(&c);
+      unsigned int raw = take32(&c);
       for (i = 0; i < sizeof(ip6); i++) {
         ip6[i] = (unsigned char)take8(&c);
       }
