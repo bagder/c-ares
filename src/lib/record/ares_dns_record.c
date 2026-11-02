@@ -1379,6 +1379,10 @@ ares_status_t ares_dns_rr_set_bin_own(ares_dns_rr_t    *dns_rr,
     return ARES_EFORMERR;
   }
 
+  if (val == NULL && len != 0) {
+    return ARES_EFORMERR;
+  }
+
   if (ares_dns_rr_key_datatype(key) == ARES_DATATYPE_ABINP) {
     ares_dns_multistring_t **strs = ares_dns_rr_data_ptr(dns_rr, key, NULL);
     if (strs == NULL) {
@@ -1394,6 +1398,10 @@ ares_status_t ares_dns_rr_set_bin_own(ares_dns_rr_t    *dns_rr,
 
     /* Clear all existing entries as this is an override */
     ares_dns_multistring_clear(*strs);
+
+    if (val == NULL && len == 0) {
+      return ARES_SUCCESS;
+    }
 
     return ares_dns_multistring_add_own(*strs, val, len);
   }
@@ -1422,7 +1430,7 @@ ares_status_t ares_dns_rr_set_bin(ares_dns_rr_t *dns_rr, ares_dns_rr_key_t key,
       ? ARES_TRUE
       : ARES_FALSE;
   size_t         alloclen;
-  unsigned char *temp;
+  unsigned char *temp = NULL;
 
   if (datatype != ARES_DATATYPE_BIN && datatype != ARES_DATATYPE_BINP &&
       datatype != ARES_DATATYPE_ABINP) {
@@ -1438,19 +1446,21 @@ ares_status_t ares_dns_rr_set_bin(ares_dns_rr_t *dns_rr, ares_dns_rr_key_t key,
   }
   alloclen = is_nullterm ? len + 1 : len;
 
-  temp = ares_malloc(alloclen);
+  if (val != NULL && alloclen != 0) {
+    temp = ares_malloc(alloclen);
 
-  if (temp == NULL) {
-    return ARES_ENOMEM;
-  }
+    if (temp == NULL) {
+      return ARES_ENOMEM;
+    }
 
-  if (len != 0) {
-    memcpy(temp, val, len);
-  }
+    if (len != 0) {
+      memcpy(temp, val, len);
+    }
 
-  /* NULL-term BINP */
-  if (is_nullterm) {
-    temp[len] = 0;
+    /* NULL-term BINP */
+    if (is_nullterm) {
+      temp[len] = 0;
+    }
   }
 
   status = ares_dns_rr_set_bin_own(dns_rr, key, temp, len);
@@ -1548,6 +1558,10 @@ ares_status_t ares_dns_rr_set_opt_own(ares_dns_rr_t    *dns_rr,
   ares_status_t      status;
 
   if (ares_dns_rr_key_datatype(key) != ARES_DATATYPE_OPT) {
+    return ARES_EFORMERR;
+  }
+
+  if (val == NULL && val_len != 0) {
     return ARES_EFORMERR;
   }
 

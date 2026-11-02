@@ -1220,12 +1220,12 @@ static ares_status_t ares_dns_write_rr_raw_rr(ares_buf_t          *buf,
 
   /* Output raw data */
   data = ares_dns_rr_get_bin(rr, ARES_RR_RAW_RR_DATA, &data_len);
-  if (data == NULL) {
-    return ARES_EFORMERR;
-  }
-
   if (data_len == 0) {
     return ARES_SUCCESS;
+  }
+
+  if (data == NULL) {
+    return ARES_EFORMERR;
   }
 
   return ares_buf_append(buf, data, data_len);

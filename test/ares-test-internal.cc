@@ -2785,7 +2785,7 @@ TEST_F(LibraryTest, DNSRecordNSEC3EmptyFields) {
  EXPECT_EQ(ARES_SUCCESS,
    ares_dns_rr_set_u16(rr, ARES_RR_NSEC3_ITERATIONS, 10));
  EXPECT_EQ(ARES_SUCCESS,
-   ares_dns_rr_set_bin_own(rr, ARES_RR_NSEC3_SALT, NULL, 0));
+   ares_dns_rr_set_bin(rr, ARES_RR_NSEC3_SALT, NULL, 0));
  const unsigned char nsec3_next[] = {
    0x0d, 0x7c, 0xd3, 0xee, 0x6b, 0x4b, 0x28, 0xc5, 0x4d, 0xf0, 0x34, 0xb9,
    0x79, 0x83, 0xa1, 0xd1, 0x6e, 0x8a, 0x41, 0x0e };
@@ -2793,7 +2793,8 @@ TEST_F(LibraryTest, DNSRecordNSEC3EmptyFields) {
    ares_dns_rr_set_bin(rr, ARES_RR_NSEC3_NEXT_HASHED_OWNER, nsec3_next,
      sizeof(nsec3_next)));
  EXPECT_EQ(ARES_SUCCESS,
-   ares_dns_rr_set_bin_own(rr, ARES_RR_NSEC3_TYPE_BIT_MAPS, NULL, 0));
+   ares_dns_rr_set_bin(rr, ARES_RR_NSEC3_TYPE_BIT_MAPS,
+                       (const unsigned char *)"", 0));
 
  /* NSEC3PARAM with empty salt. */
  EXPECT_EQ(ARES_SUCCESS,
@@ -2807,7 +2808,7 @@ TEST_F(LibraryTest, DNSRecordNSEC3EmptyFields) {
  EXPECT_EQ(ARES_SUCCESS,
    ares_dns_rr_set_u16(rr, ARES_RR_NSEC3PARAM_ITERATIONS, 10));
  EXPECT_EQ(ARES_SUCCESS,
-   ares_dns_rr_set_bin_own(rr, ARES_RR_NSEC3PARAM_SALT, NULL, 0));
+   ares_dns_rr_set_bin(rr, ARES_RR_NSEC3PARAM_SALT, NULL, 0));
 
  /* Write and re-parse to exercise the write-side empty-length paths too. */
  unsigned char *buf    = NULL;
@@ -2878,6 +2879,20 @@ TEST_F(LibraryTest, DNSRecordRejectsInvalidBinaryInput) {
     ares_dns_rr_set_opt(rr, ARES_RR_OPT_OPTIONS, 3, data, SIZE_MAX));
   EXPECT_EQ(ARES_EFORMERR,
     ares_dns_rr_set_opt(rr, ARES_RR_OPT_OPTIONS, 3, NULL, 1));
+
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_rr_add(&rr, dnsrec, ARES_SECTION_ANSWER, "example.com",
+      ARES_REC_TYPE_NSEC3, ARES_CLASS_IN, 60));
+  EXPECT_EQ(ARES_EFORMERR,
+    ares_dns_rr_set_bin(rr, ARES_RR_NSEC3_SALT, NULL, 1));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_bin(rr, ARES_RR_NSEC3_SALT, NULL, 0));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_bin(rr, ARES_RR_NSEC3_SALT, (const unsigned char *)"", 0));
+#ifndef CARES_SYMBOL_HIDING
+  EXPECT_EQ(ARES_EFORMERR,
+    ares_dns_rr_set_bin_own(rr, ARES_RR_NSEC3_SALT, NULL, 1));
+#endif
 
   ares_dns_record_destroy(dnsrec);
 }
@@ -3543,6 +3558,12 @@ TEST_F(LibraryTest, ZeroLengthRawRrKeepsType) {
   rr = ares_dns_record_rr_get(parsed, ARES_SECTION_ANSWER, 0);
   EXPECT_EQ(ARES_REC_TYPE_RAW_RR, ares_dns_rr_get_type(rr));
   EXPECT_EQ(65432, ares_dns_rr_get_u16(rr, ARES_RR_RAW_RR_TYPE));
+
+  /* Verify zero-length RAW_RR serializes cleanly */
+  unsigned char *buf    = NULL;
+  size_t         buflen = 0;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(parsed, &buf, &buflen));
+  ares_free(buf);
 
   ares_dns_record_destroy(parsed);
 }
