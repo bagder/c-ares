@@ -150,8 +150,13 @@ ares_status_t ares_send_nolock(ares_channel_t *channel, ares_server_t *server,
    * cache is actually on.  The send path may mutate query->query afterwards
    * -- the EDNS fallback strips its OPT record -- and a key derived from it
    * later would not match.  ares_init_options() always creates the cache
-   * object, so a zero maximum TTL is what "off" means. */
-  if (channel->qcache_max_ttl > 0) {
+   * object, so a zero maximum TTL is what "off" means.
+   *
+   * Only QUERY responses are cached.  The other opcodes are not identified by
+   * the question alone: an UPDATE (RFC 2136) also carries its prerequisites
+   * and changes in the update section. */
+  if (channel->qcache_max_ttl > 0 &&
+      ares_dns_record_get_opcode(dnsrec) == ARES_OPCODE_QUERY) {
     qcache_key = ares_qcache_calc_key(dnsrec);
     if (qcache_key == NULL) {
       callback(arg, ARES_ENOMEM, 0, NULL); /* LCOV_EXCL_LINE: OutOfMemory */

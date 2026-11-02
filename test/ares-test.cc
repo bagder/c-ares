@@ -603,7 +603,8 @@ void MockServer::ProcessPacket(ares_socket_t fd, struct sockaddr_storage *addr, 
     std::cerr << "Not a request" << std::endl;
     return;
   }
-  if (DNS_HEADER_OPCODE(data) != O_QUERY) {
+  if (DNS_HEADER_OPCODE(data) != O_QUERY &&
+      DNS_HEADER_OPCODE(data) != O_UPDATE) {
     std::cerr << "Not a query (opcode " << DNS_HEADER_OPCODE(data)
               << ")" << std::endl;
     return;
