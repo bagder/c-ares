@@ -26,6 +26,7 @@
 #include "ares-test.h"
 #include "dns-proto.h"
 
+#include <algorithm>
 #include <climits>
 #include <cstdint>
 #include <stdio.h>
@@ -1946,8 +1947,10 @@ TEST_P(LocalhostHostsTest, GetAddrInfo)
       addresses.push_back(AddressToString(&addr->sin6_addr, 16));
     }
   }
-  EXPECT_THAT(addresses,
-              ::testing::UnorderedElementsAreArray(ExpectedAddresses()));
+  auto expected = ExpectedAddresses();
+  std::sort(addresses.begin(), addresses.end());
+  std::sort(expected.begin(), expected.end());
+  EXPECT_EQ(expected, addresses);
 }
 
 TEST_P(LocalhostHostsTest, GetHostByName)
