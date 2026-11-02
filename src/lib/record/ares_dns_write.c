@@ -1398,12 +1398,19 @@ static ares_status_t ares_dns_write_rr(const ares_dns_record_t *dnsrec,
       return ARES_EBADQUERY;
     }
 
+    /* RDLENGTH is a 16-bit field.  A record whose assembled rdata is larger
+     * can't be represented on the wire; emitting a truncated length would
+     * desync the framing of everything after it, so reject the record. */
+    if (rdlength > 0xFFFF) {
+      return ARES_EBADQUERY;
+    }
+
     status = ares_buf_set_length(buf, pos_len);
     if (status != ARES_SUCCESS) {
       return status;
     }
 
-    status = ares_buf_append_be16(buf, (unsigned short)(rdlength & 0xFFFF));
+    status = ares_buf_append_be16(buf, (unsigned short)rdlength);
     if (status != ARES_SUCCESS) {
       return status; /* LCOV_EXCL_LINE: OutOfMemory */
     }

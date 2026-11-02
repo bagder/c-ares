@@ -2882,6 +2882,41 @@ TEST_F(LibraryTest, DNSRecordRejectsInvalidBinaryInput) {
   ares_dns_record_destroy(dnsrec);
 }
 
+TEST_F(LibraryTest, DNSRecordRejectsOversizedRdata) {
+  ares_dns_record_t         *dnsrec = NULL;
+  ares_dns_rr_t             *rr     = NULL;
+  unsigned char             *msg    = NULL;
+  size_t                     msglen = 0;
+  std::vector<unsigned char> big(70000, 0xAB);
+
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_create(&dnsrec, 0x1234, ARES_FLAG_RD,
+      ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_rr_add(&rr, dnsrec, ARES_SECTION_ANSWER, "example.com",
+      ARES_REC_TYPE_RAW_RR, ARES_CLASS_IN, 0));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_u16(rr, ARES_RR_RAW_RR_TYPE, 40000));
+
+  /* rdata larger than the 16-bit RDLENGTH field is accepted by the setter but
+   * cannot be represented on the wire; writing it must fail rather than emit a
+   * packet whose length field is truncated and mis-frames the rdata. */
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_bin(rr, ARES_RR_RAW_RR_DATA, big.data(), big.size()));
+  EXPECT_EQ(ARES_EBADQUERY, ares_dns_write(dnsrec, &msg, &msglen));
+  EXPECT_EQ(nullptr, msg);
+
+  /* An rdata that exactly fills the field still writes */
+  big.resize(65535);
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_bin(rr, ARES_RR_RAW_RR_DATA, big.data(), big.size()));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec, &msg, &msglen));
+  ares_free_string(msg);
+
+  ares_dns_record_destroy(dnsrec);
+}
+
 TEST_F(LibraryTest, DNSParseFlags) {
   ares_dns_record_t   *dnsrec = NULL;
   ares_dns_rr_t       *rr     = NULL;
