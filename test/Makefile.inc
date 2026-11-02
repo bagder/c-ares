@@ -36,6 +36,9 @@ FUZZSOURCES = ares-test-fuzz.c		\
 FUZZNAMESOURCES = ares-test-fuzz-name.c	\
   ares-fuzz.c
 
+FUZZINITSOURCES = ares-test-fuzz-initopts.c	\
+  ares-fuzz.c
+
 DUMPSOURCES = dns-proto.cc		\
   dns-dump.cc
 
