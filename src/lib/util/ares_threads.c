@@ -488,6 +488,7 @@ void ares_thread_mutex_unlock(ares_thread_mutex_t *mut)
 
 struct ares_thread_cond {
   pthread_cond_t cond;
+  pthread_condattr_t attr;
 };
 
 ares_thread_cond_t *ares_thread_cond_create(void)
@@ -496,7 +497,22 @@ ares_thread_cond_t *ares_thread_cond_create(void)
   if (cond == NULL) {
     return NULL;
   }
-  pthread_cond_init(&cond->cond, NULL);
+  if(pthread_condattr_init(&cond->attr) != 0) {
+    ares_free(cond);
+    return NULL;
+  }
+#if defined(_POSIX_CLOCK_SELECTION) && defined(_POSIX_MONOTONIC_CLOCK) && !defined(__APPLE__)
+  if(pthread_condattr_setclock(&cond->attr, CLOCK_MONOTONIC) != 0) {
+    pthread_condattr_destroy(&cond->attr);
+    ares_free(cond);
+    return NULL;
+  }
+#endif
+  if(pthread_cond_init(&cond->cond, &cond->attr) != 0) {
+    pthread_condattr_destroy(&cond->attr);
+    ares_free(cond);
+    return NULL;
+  }
   return cond;
 }
 
@@ -505,6 +521,7 @@ void ares_thread_cond_destroy(ares_thread_cond_t *cond)
   if (cond == NULL) {
     return;
   }
+  pthread_condattr_destroy(&cond->attr);
   pthread_cond_destroy(&cond->cond);
   ares_free(cond);
 }
@@ -538,7 +555,9 @@ ares_status_t ares_thread_cond_wait(ares_thread_cond_t  *cond,
 
 static void ares_timespec_timeout(struct timespec *ts, size_t add_ms)
 {
-#    if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_REALTIME)
+#if  defined(_POSIX_CLOCK_SELECTION) && defined(_POSIX_MONOTONIC_CLOCK) && !defined(__APPLE__)
+  clock_gettime(CLOCK_MONOTONIC, ts);
+#    elif defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_REALTIME)
   clock_gettime(CLOCK_REALTIME, ts);
 #    elif defined(HAVE_GETTIMEOFDAY)
   struct timeval tv;
