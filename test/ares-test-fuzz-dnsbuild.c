@@ -57,32 +57,31 @@
 #include "ares_dns_record.h"
 #include "include/ares_mem.h"
 
-#define MAX_NAME    255
-#define MAX_BLOB    512
-#define MAX_STR     128
+#define MAX_NAME 255
+#define MAX_BLOB 512
+#define MAX_STR  128
 
 static ares_dns_rec_type_t valid_types[] = {
-  ARES_REC_TYPE_A,   ARES_REC_TYPE_NS,       ARES_REC_TYPE_CNAME,
-  ARES_REC_TYPE_SOA, ARES_REC_TYPE_PTR,      ARES_REC_TYPE_HINFO,
-  ARES_REC_TYPE_MX,  ARES_REC_TYPE_TXT,      ARES_REC_TYPE_SIG,
-  ARES_REC_TYPE_AAAA, ARES_REC_TYPE_SRV,     ARES_REC_TYPE_NAPTR,
-  ARES_REC_TYPE_OPT, ARES_REC_TYPE_DS,       ARES_REC_TYPE_SSHFP,
-  ARES_REC_TYPE_RRSIG, ARES_REC_TYPE_NSEC,   ARES_REC_TYPE_DNSKEY,
+  ARES_REC_TYPE_A,     ARES_REC_TYPE_NS,         ARES_REC_TYPE_CNAME,
+  ARES_REC_TYPE_SOA,   ARES_REC_TYPE_PTR,        ARES_REC_TYPE_HINFO,
+  ARES_REC_TYPE_MX,    ARES_REC_TYPE_TXT,        ARES_REC_TYPE_SIG,
+  ARES_REC_TYPE_AAAA,  ARES_REC_TYPE_SRV,        ARES_REC_TYPE_NAPTR,
+  ARES_REC_TYPE_OPT,   ARES_REC_TYPE_DS,         ARES_REC_TYPE_SSHFP,
+  ARES_REC_TYPE_RRSIG, ARES_REC_TYPE_NSEC,       ARES_REC_TYPE_DNSKEY,
   ARES_REC_TYPE_NSEC3, ARES_REC_TYPE_NSEC3PARAM, ARES_REC_TYPE_TLSA,
-  ARES_REC_TYPE_SVCB, ARES_REC_TYPE_HTTPS,   ARES_REC_TYPE_URI,
+  ARES_REC_TYPE_SVCB,  ARES_REC_TYPE_HTTPS,      ARES_REC_TYPE_URI,
   ARES_REC_TYPE_CAA
 };
 #define NUM_TYPES (sizeof(valid_types) / sizeof(valid_types[0]))
 
-static ares_dns_class_t valid_classes[] = {
-  ARES_CLASS_IN, ARES_CLASS_CHAOS, ARES_CLASS_HESIOD, ARES_CLASS_NONE,
-  ARES_CLASS_ANY
-};
+static ares_dns_class_t valid_classes[] = { ARES_CLASS_IN, ARES_CLASS_CHAOS,
+                                            ARES_CLASS_HESIOD, ARES_CLASS_NONE,
+                                            ARES_CLASS_ANY };
 #define NUM_CLASSES (sizeof(valid_classes) / sizeof(valid_classes[0]))
 
 static ares_dns_opcode_t valid_opcodes[] = {
-  ARES_OPCODE_QUERY, ARES_OPCODE_IQUERY, ARES_OPCODE_STATUS,
-  ARES_OPCODE_NOTIFY, ARES_OPCODE_UPDATE
+  ARES_OPCODE_QUERY, ARES_OPCODE_IQUERY, ARES_OPCODE_STATUS, ARES_OPCODE_NOTIFY,
+  ARES_OPCODE_UPDATE
 };
 #define NUM_OPCODES (sizeof(valid_opcodes) / sizeof(valid_opcodes[0]))
 
@@ -102,21 +101,21 @@ static unsigned int take8(fuzz_cursor_t *c)
 
 static unsigned int take16(fuzz_cursor_t *c)
 {
-  unsigned int v = (take8(c) << 8);
-  v |= take8(c);
+  unsigned int v  = (take8(c) << 8);
+  v              |= take8(c);
   return v;
 }
 
 static unsigned int take32(fuzz_cursor_t *c)
 {
-  unsigned int v = ((unsigned int)take16(c) << 16);
-  v |= take16(c);
+  unsigned int v  = ((unsigned int)take16(c) << 16);
+  v              |= take16(c);
   return v;
 }
 
 static size_t take_blob(fuzz_cursor_t *c, unsigned char *buf, size_t maxlen);
-static void   set_rr_keys(fuzz_cursor_t *c, ares_dns_rr_t *rr,
-                          ares_dns_rec_type_t rtype);
+static void set_rr_keys(fuzz_cursor_t *c, ares_dns_rr_t *rr,
+                        ares_dns_rec_type_t rtype);
 
 /* Exercise every getter/tostr on the re-parsed copy of the written
  * message so parse/write asymmetries surface. */
@@ -131,8 +130,8 @@ static void exercise_parsed(ares_dns_record_t *rec)
 
   for (i = 0; i < ares_dns_record_query_cnt(rec); i++) {
     const char         *name = NULL;
-    ares_dns_rec_type_t  qtype;
-    ares_dns_class_t     qclass;
+    ares_dns_rec_type_t qtype;
+    ares_dns_class_t    qclass;
     if (ares_dns_record_query_get(rec, i, &name, &qtype, &qclass) ==
         ARES_SUCCESS) {
       (void)ares_dns_rec_type_tostr(qtype);
@@ -143,8 +142,8 @@ static void exercise_parsed(ares_dns_record_t *rec)
   for (s = ARES_SECTION_ANSWER; s <= ARES_SECTION_ADDITIONAL; s++) {
     size_t cnt = ares_dns_record_rr_cnt(rec, (ares_dns_section_t)s);
     for (i = 0; i < cnt; i++) {
-      const ares_dns_rr_t     *rr = ares_dns_record_rr_get(
-        rec, (ares_dns_section_t)s, i);
+      const ares_dns_rr_t *rr =
+        ares_dns_record_rr_get(rec, (ares_dns_section_t)s, i);
       const ares_dns_rr_key_t *keys     = NULL;
       size_t                   keys_cnt = 0;
       size_t                   k;
@@ -178,31 +177,34 @@ static void exercise_parsed(ares_dns_record_t *rec)
             (void)ares_dns_rr_get_str(rr, keys[k]);
             break;
           case ARES_DATATYPE_BIN:
-          case ARES_DATATYPE_BINP: {
-            size_t blen = 0;
-            (void)ares_dns_rr_get_bin(rr, keys[k], &blen);
-            break;
-          }
-          case ARES_DATATYPE_ABINP: {
-            size_t acnt = ares_dns_rr_get_abin_cnt(rr, keys[k]);
-            size_t a;
-            for (a = 0; a < acnt; a++) {
-              size_t alen = 0;
-              (void)ares_dns_rr_get_abin(rr, keys[k], a, &alen);
+          case ARES_DATATYPE_BINP:
+            {
+              size_t blen = 0;
+              (void)ares_dns_rr_get_bin(rr, keys[k], &blen);
+              break;
             }
-            break;
-          }
-          case ARES_DATATYPE_OPT: {
-            size_t               ocnt = ares_dns_rr_get_opt_cnt(rr, keys[k]);
-            size_t               o;
-            const unsigned char *oval  = NULL;
-            size_t               olen  = 0;
-            for (o = 0; o < ocnt; o++) {
-              (void)ares_dns_rr_get_opt(rr, keys[k], o, &oval, &olen);
+          case ARES_DATATYPE_ABINP:
+            {
+              size_t acnt = ares_dns_rr_get_abin_cnt(rr, keys[k]);
+              size_t a;
+              for (a = 0; a < acnt; a++) {
+                size_t alen = 0;
+                (void)ares_dns_rr_get_abin(rr, keys[k], a, &alen);
+              }
+              break;
             }
-            (void)ares_dns_rr_get_opt_byid(rr, keys[k], 10, &oval, &olen);
-            break;
-          }
+          case ARES_DATATYPE_OPT:
+            {
+              size_t               ocnt = ares_dns_rr_get_opt_cnt(rr, keys[k]);
+              size_t               o;
+              const unsigned char *oval = NULL;
+              size_t               olen = 0;
+              for (o = 0; o < ocnt; o++) {
+                (void)ares_dns_rr_get_opt(rr, keys[k], o, &oval, &olen);
+              }
+              (void)ares_dns_rr_get_opt_byid(rr, keys[k], 10, &oval, &olen);
+              break;
+            }
           default:
             break;
         }
@@ -215,16 +217,16 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size);
 
 int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
 {
-  fuzz_cursor_t       c;
-  ares_dns_record_t  *rec    = NULL;
-  unsigned char      *msg    = NULL;
-  size_t              msglen = 0;
-  ares_dns_record_t  *rec2   = NULL;
-  ares_dns_opcode_t   opcode;
-  ares_dns_rcode_t    rcode;
-  unsigned int        nq;
-  unsigned int        sect;
-  unsigned int        q;
+  fuzz_cursor_t      c;
+  ares_dns_record_t *rec    = NULL;
+  unsigned char     *msg    = NULL;
+  size_t             msglen = 0;
+  ares_dns_record_t *rec2   = NULL;
+  ares_dns_opcode_t  opcode;
+  ares_dns_rcode_t   rcode;
+  unsigned int       nq;
+  unsigned int       sect;
+  unsigned int       q;
 
   if (ares_library_init(ARES_LIB_INIT_ALL) != ARES_SUCCESS) {
     return 0;
@@ -245,14 +247,14 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size)
 
   nq = take8(&c) % 4u + 1u;
   for (q = 0; q < nq; q++) {
-    unsigned char  name[MAX_NAME + 1];
+    unsigned char       name[MAX_NAME + 1];
     ares_dns_rec_type_t qtype;
     ares_dns_class_t    qclass;
     take_blob(&c, name, MAX_NAME);
     qtype  = valid_types[take8(&c) % NUM_TYPES];
     qclass = valid_classes[take8(&c) % NUM_CLASSES];
-    if (ares_dns_record_query_add(rec, (const char *)name, qtype,
-                                  qclass) != ARES_SUCCESS) {
+    if (ares_dns_record_query_add(rec, (const char *)name, qtype, qclass) !=
+        ARES_SUCCESS) {
       goto done;
     }
   }
@@ -304,7 +306,7 @@ static size_t take_blob(fuzz_cursor_t *c, unsigned char *buf, size_t maxlen)
   }
   memcpy(buf, c->data + c->pos, n);
   c->pos += n;
-  buf[n] = 0;
+  buf[n]  = 0;
   return n;
 }
 
@@ -325,24 +327,26 @@ static void set_rr_keys(fuzz_cursor_t *c, ares_dns_rr_t *rr,
 
   for (i = 0; i < keys_cnt; i++) {
     switch (ares_dns_rr_key_datatype(keys[i])) {
-      case ARES_DATATYPE_INADDR: {
-        struct in_addr addr;
-        unsigned int   raw = take32(c);
-        memcpy(&addr, &raw, sizeof(addr));
-        ares_dns_rr_set_addr(rr, keys[i], &addr);
-        break;
-      }
-      case ARES_DATATYPE_INADDR6: {
-        struct ares_in6_addr addr6;
-        unsigned char        b6[16];
-        size_t               j;
-        for (j = 0; j < sizeof(b6); j++) {
-          b6[j] = (unsigned char)take8(c);
+      case ARES_DATATYPE_INADDR:
+        {
+          struct in_addr addr;
+          unsigned int   raw = take32(c);
+          memcpy(&addr, &raw, sizeof(addr));
+          ares_dns_rr_set_addr(rr, keys[i], &addr);
+          break;
         }
-        memcpy(&addr6, b6, sizeof(addr6));
-        ares_dns_rr_set_addr6(rr, keys[i], &addr6);
-        break;
-      }
+      case ARES_DATATYPE_INADDR6:
+        {
+          struct ares_in6_addr addr6;
+          unsigned char        b6[16];
+          size_t               j;
+          for (j = 0; j < sizeof(b6); j++) {
+            b6[j] = (unsigned char)take8(c);
+          }
+          memcpy(&addr6, b6, sizeof(addr6));
+          ares_dns_rr_set_addr6(rr, keys[i], &addr6);
+          break;
+        }
       case ARES_DATATYPE_U8:
         ares_dns_rr_set_u8(rr, keys[i], (unsigned char)take8(c));
         break;
@@ -362,25 +366,27 @@ static void set_rr_keys(fuzz_cursor_t *c, ares_dns_rr_t *rr,
         bloblen = take_blob(c, blob, MAX_BLOB);
         ares_dns_rr_set_bin(rr, keys[i], blob, bloblen);
         break;
-      case ARES_DATATYPE_ABINP: {
-        unsigned int n = take8(c) % 3u;
-        unsigned int a;
-        for (a = 0; a < n; a++) {
-          bloblen = take_blob(c, blob, MAX_BLOB);
-          ares_dns_rr_add_abin(rr, keys[i], blob, bloblen);
+      case ARES_DATATYPE_ABINP:
+        {
+          unsigned int n = take8(c) % 3u;
+          unsigned int a;
+          for (a = 0; a < n; a++) {
+            bloblen = take_blob(c, blob, MAX_BLOB);
+            ares_dns_rr_add_abin(rr, keys[i], blob, bloblen);
+          }
+          break;
         }
-        break;
-      }
-      case ARES_DATATYPE_OPT: {
-        unsigned int n = take8(c) % 3u;
-        unsigned int a;
-        for (a = 0; a < n; a++) {
-          unsigned short opt = (unsigned short)take16(c);
-          bloblen            = take_blob(c, blob, 64);
-          ares_dns_rr_set_opt(rr, keys[i], opt, blob, bloblen);
+      case ARES_DATATYPE_OPT:
+        {
+          unsigned int n = take8(c) % 3u;
+          unsigned int a;
+          for (a = 0; a < n; a++) {
+            unsigned short opt = (unsigned short)take16(c);
+            bloblen            = take_blob(c, blob, 64);
+            ares_dns_rr_set_opt(rr, keys[i], opt, blob, bloblen);
+          }
+          break;
         }
-        break;
-      }
       default:
         break;
     }

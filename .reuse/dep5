@@ -4,7 +4,7 @@ Upstream-Contact: The c-ares team <c-ares@lists.haxx.se>
 Source: https://c-ares.org/
 
 # Fuzzer data
-Files: test/fuzzinput/* test/fuzznames/*
+Files: test/fuzzinput/* test/fuzznames/* test/fuzzbuild-seeds/*
 Copyright: The c-ares project and its contributors
 License: MIT
 
