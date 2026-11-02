@@ -1065,6 +1065,69 @@ static ares_bool_t issue_might_be_edns(const ares_dns_record_t *req,
   return ARES_FALSE;
 }
 
+/* A UDP datagram that ares_dns_parse() rejected.  RFC 5452 section 9.1: a
+ * response has to match the query id and question before it is acted on.  If
+ * it is a response (RFC 1035 section 4.1.1: QR set) whose header and question
+ * match a query in flight on this connection, treat it as that query's
+ * malformed answer: fail just that query and count it against the server.
+ * If the query expects a DNS Cookie in its reply, a reply without a valid
+ * Cookie is discarded (RFC 7873 section 5.3), and the Cookie of a message that
+ * does not parse cannot be checked, so drop it.  Anything else cannot be
+ * attributed to a query and is dropped like an unknown query id: tearing the
+ * connection down instead would end every other query in flight on it. */
+static ares_status_t process_unparsable_udp(ares_channel_t      *channel,
+                                            const unsigned char *abuf,
+                                            size_t alen, ares_conn_t *conn,
+                                            const ares_timeval_t *now,
+                                            ares_array_t        **requeue)
+{
+  ares_dns_record_t *qrec = NULL;
+  ares_query_t      *query;
+  ares_status_t      status;
+
+  status = ares_dns_parse_question(abuf, alen, &qrec);
+  if (status == ARES_ENOMEM) {
+    return status; /* LCOV_EXCL_LINE: OutOfMemory */
+  }
+  if (status != ARES_SUCCESS) {
+    return ARES_SUCCESS;
+  }
+
+  if (!(ares_dns_record_get_flags(qrec) & ARES_FLAG_QR)) {
+    status = ARES_SUCCESS;
+    goto done;
+  }
+  query = ares_htable_szvp_get_direct(channel->queries_by_qid,
+                                      ares_dns_record_get_id(qrec));
+  if (query == NULL || query->conn != conn || !same_questions(query, qrec) ||
+      ares_cookie_expected(query, conn)) {
+    status = ARES_SUCCESS;
+    goto done;
+  }
+  /* RFC 2181 section 9: ignore a truncated reply and retry over TCP, as for
+   * a truncated reply that parses.  This one was truncated badly enough not
+   * to parse. */
+  if (ares_dns_record_get_flags(qrec) & ARES_FLAG_TC &&
+      !(channel->flags & ARES_FLAG_IGNTC)) {
+    query->using_tcp = ARES_TRUE;
+    status           = ares_append_requeue(requeue, query, NULL);
+    goto done;
+  }
+
+  /* Count the failure first so the retry is unlikely to pick this server */
+  server_increment_failures(conn->server, ARES_FALSE);
+  if (ares_requeue_query(query, now, ARES_EBADRESP, ARES_TRUE, NULL, requeue) ==
+      ARES_ENOMEM) {
+    status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
+  } else {
+    status = ARES_SUCCESS;
+  }
+
+done:
+  ares_dns_record_destroy(qrec);
+  return status;
+}
+
 /* Handle an answer from a server. This must NEVER cleanup the
  * server connection! Return something other than ARES_SUCCESS to cause
  * the connection to be terminated after this call. */
@@ -1089,12 +1152,19 @@ static ares_status_t process_answer(ares_channel_t      *channel,
 
   /* Parse the response */
   status = ares_dns_parse(abuf, alen, 0, &rdnsrec);
+  if (status == ARES_ENOMEM) {
+    goto cleanup; /* LCOV_EXCL_LINE: OutOfMemory */
+  }
   if (status != ARES_SUCCESS) {
-    /* Malformations are never accepted */
-    status = ARES_EBADRESP;
+    /* Malformations are never accepted.  Over TCP the message arrived on the
+     * established stream, so the server is failing. */
+    if (conn->flags & ARES_CONN_FLAG_TCP) {
+      status = ARES_EBADRESP;
+      goto cleanup;
+    }
+    status = process_unparsable_udp(channel, abuf, alen, conn, now, requeue);
     goto cleanup;
   }
-
   /* Find the query corresponding to this packet. The queries are
    * hashed/bucketed by query id, so this lookup should be quick.
    */

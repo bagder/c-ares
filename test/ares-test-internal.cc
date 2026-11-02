@@ -416,7 +416,70 @@ TEST_F(LibraryTest, IfaceIPs) {
 
   ares_iface_ips_destroy(ips);
 }
+
 #endif
+
+TEST_F(LibraryTest, DNSParseQuestion)
+{
+  /* Header and question for www.example.com A IN, then an A record cut off
+   * two bytes into its RDATA */
+  unsigned char       msg[]  = { 0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01,
+                                 0x00, 0x00, 0x00, 0x00, 0x03, 'w',  'w',  'w',
+                                 0x07, 'e',  'x',  'a',  'm',  'p',  'l',  'e',
+                                 0x03, 'c',  'o',  'm',  0x00, 0x00, 0x01, 0x00,
+                                 0x01, 0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00,
+                                 0x00, 0x00, 0x3C, 0x00, 0x04, 0x01, 0x02 };
+  ares_dns_record_t  *dnsrec = NULL;
+  const char         *name   = NULL;
+  ares_dns_rec_type_t qtype;
+  ares_dns_class_t    qclass;
+
+  /* The full parser rejects it ... */
+  EXPECT_NE(ARES_SUCCESS, ares_dns_parse(msg, sizeof(msg), 0, &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+
+  /* ... but the header and question are intact */
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_parse_question(msg, sizeof(msg), &dnsrec));
+  ASSERT_NE(nullptr, dnsrec);
+  EXPECT_EQ(0x1234, ares_dns_record_get_id(dnsrec));
+  EXPECT_EQ((size_t)1, ares_dns_record_query_cnt(dnsrec));
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_dns_record_query_get(dnsrec, 0, &name, &qtype, &qclass));
+  EXPECT_STREQ("www.example.com", name);
+  EXPECT_EQ(ARES_REC_TYPE_A, qtype);
+  EXPECT_EQ(ARES_CLASS_IN, qclass);
+  EXPECT_EQ((size_t)0, ares_dns_record_rr_cnt(dnsrec, ARES_SECTION_ANSWER));
+  ares_dns_record_destroy(dnsrec);
+
+  /* Question cut short */
+  dnsrec = (ares_dns_record_t *)1;
+  EXPECT_NE(ARES_SUCCESS, ares_dns_parse_question(msg, 20, &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+
+  /* Shorter than a header */
+  dnsrec = (ares_dns_record_t *)1;
+  EXPECT_NE(ARES_SUCCESS, ares_dns_parse_question(msg, 4, &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+
+  /* No question */
+  msg[5] = 0;
+  EXPECT_EQ(ARES_EBADRESP, ares_dns_parse_question(msg, sizeof(msg), &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+
+  /* Two questions */
+  msg[5] = 2;
+  EXPECT_EQ(ARES_EBADRESP, ares_dns_parse_question(msg, sizeof(msg), &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+
+  /* Invalid arguments; a valid output pointer is still cleared */
+  dnsrec = reinterpret_cast<ares_dns_record_t *>(msg);
+  EXPECT_EQ(ARES_EFORMERR, ares_dns_parse_question(NULL, 1, &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+  dnsrec = reinterpret_cast<ares_dns_record_t *>(msg);
+  EXPECT_EQ(ARES_EFORMERR, ares_dns_parse_question(msg, 0, &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
+  EXPECT_EQ(ARES_EFORMERR, ares_dns_parse_question(msg, sizeof(msg), NULL));
+}
 
 TEST_F(LibraryTest, HtableMisuse) {
   EXPECT_EQ(NULL, ares_htable_create(NULL, NULL, NULL, NULL));

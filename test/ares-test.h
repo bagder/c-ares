@@ -329,6 +329,12 @@ public:
     return tcpport_;
   }
 
+  // Whether the most recent request arrived over TCP.
+  bool LastRequestTCP() const
+  {
+    return last_fd_ != udpfd_;
+  }
+
 private:
   void           ProcessRequest(ares_socket_t fd, struct sockaddr_storage *addr,
                                 ares_socklen_t addrlen, const std::vector<byte> &req,
