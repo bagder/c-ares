@@ -46,6 +46,22 @@ unsigned char cflare_addr6[16] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x11
 };
 
+static bool HostEntNameOrAliasContains(const HostEnt     &host,
+                                       const std::string &name)
+{
+  if (host.name_.find(name) != SIZE_MAX) {
+    return true;
+  }
+
+  for (size_t i = 0; i < host.aliases_.size(); i++) {
+    if (host.aliases_[i].find(name) != SIZE_MAX) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 MATCHER_P(IncludesAtLeastNumAddresses, n, "") {
   if(!arg)
     return false;
@@ -177,7 +193,7 @@ TEST_P(DefaultChannelModeTest, LiveGetLocalhostByNameV4) {
     EXPECT_EQ(ARES_SUCCESS, result.status_);
     EXPECT_EQ(1, (int)result.host_.addrs_.size());
     EXPECT_EQ(AF_INET, result.host_.addrtype_);
-    EXPECT_NE(SIZE_MAX, result.host_.name_.find("localhost"));
+    EXPECT_TRUE(HostEntNameOrAliasContains(result.host_, "localhost"));
   }
 }
 
@@ -192,7 +208,7 @@ TEST_P(DefaultChannelModeTest, LiveGetLocalhostByNameV6) {
     EXPECT_EQ(AF_INET6, result.host_.addrtype_);
     std::stringstream ss;
     ss << HostEnt(result.host_);
-    EXPECT_NE(SIZE_MAX, result.host_.name_.find("localhost"));
+    EXPECT_TRUE(HostEntNameOrAliasContains(result.host_, "localhost"));
   }
 }
 
@@ -273,8 +289,7 @@ TEST_P(DefaultChannelModeTest, LiveGetLocalhostByAddrV4) {
     EXPECT_EQ(AF_INET, result.host_.addrtype_);
     // oddly, travis does not resolve to localhost, but a random hostname starting with travis-job
     if (result.host_.name_.find("travis-job") == SIZE_MAX) {
-        EXPECT_NE(SIZE_MAX,
-                  result.host_.name_.find("localhost"));
+      EXPECT_TRUE(HostEntNameOrAliasContains(result.host_, "localhost"));
     }
   }
 }
@@ -292,8 +307,8 @@ TEST_P(DefaultChannelModeTest, LiveGetLocalhostByAddrV6) {
     EXPECT_LT(0, (int)result.host_.addrs_.size());
     EXPECT_EQ(AF_INET6, result.host_.addrtype_);
     const std::string& name = result.host_.name_;
-    EXPECT_TRUE(SIZE_MAX != name.find("localhost") ||
-                SIZE_MAX != name.find("ip6-loopback"));
+    EXPECT_TRUE(HostEntNameOrAliasContains(result.host_, "localhost") ||
+                HostEntNameOrAliasContains(result.host_, "ip6-loopback"));
   }
 }
 
