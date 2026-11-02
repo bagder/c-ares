@@ -631,7 +631,7 @@ typedef enum {
 
 /*! Socket functions to call rather than using OS-native functions */
 struct ares_socket_functions_ex {
-  /*! ABI Version: must be "1" */
+  /*! ABI Version: must be ARES_SOCKET_FUNCTIONS_EX_VERSION */
   unsigned int version;
 
   /*! Flags indicating behavior of the subsystem. One or more
@@ -807,6 +807,19 @@ struct ares_socket_functions_ex {
   const char *(*aif_indextoname)(unsigned int ifindex, char *ifname_buf,
                                  size_t ifname_buf_len, void *user_data);
 };
+
+#define ARES_SOCKET_FUNCTIONS_EX_VERSION 1
+
+/*! Initialize socket io callbacks with c-ares' default implementations.
+ *
+ *  \param[out] funcs   Structure to initialize.
+ *  \param[in] version  Socket functions ABI version to initialize. Use
+ *                      ARES_SOCKET_FUNCTIONS_EX_VERSION.
+ *  \return ARES_SUCCESS on success, or another error code such as
+ *          ARES_EFORMERR on misuse.
+ */
+CARES_EXTERN ares_status_t ares_default_socket_functions_ex(
+  struct ares_socket_functions_ex *funcs, unsigned int version);
 
 /*! Override the native socket functions for the OS with the provided set.
  *  An optional user data thunk may be specified which will be passed to

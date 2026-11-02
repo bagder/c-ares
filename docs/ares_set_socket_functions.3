@@ -2,7 +2,7 @@
 .\" SPDX-License-Identifier: MIT
 .TH ARES_SET_SOCKET_FUNCTIONS 3 "8 Oct 2024"
 .SH NAME
-ares_set_socket_functions, ares_set_socket_functions_ex \- Set socket io callbacks
+ares_set_socket_functions, ares_set_socket_functions_ex, ares_default_socket_functions_ex \- Set socket io callbacks
 .SH SYNOPSIS
 .nf
 #include <ares.h>
@@ -28,7 +28,7 @@ typedef enum {
 } ares_socket_bind_flags_t;
 
 struct ares_socket_functions_ex {
-  unsigned int version; /* ABI Version: must be "1" */
+  unsigned int version; /* ABI Version: must be ARES_SOCKET_FUNCTIONS_EX_VERSION */
   unsigned int flags;
 
   ares_socket_t (*asocket)(int domain, int type, int protocol, void *user_data);
@@ -53,6 +53,11 @@ struct ares_socket_functions_ex {
   const char *(*aif_indextoname)(unsigned int ifindex, char *ifname_buf,
                                  size_t ifname_buf_len, void *user_data);
 };
+
+#define ARES_SOCKET_FUNCTIONS_EX_VERSION 1
+
+ares_status_t ares_default_socket_functions_ex(
+  struct ares_socket_functions_ex *funcs, unsigned int version);
 
 ares_status_t ares_set_socket_functions_ex(ares_channel_t *channel,
   const struct ares_socket_functions_ex *funcs, void *user_data);
@@ -88,6 +93,15 @@ Some callbacks may be optional and are documented as such below, but failing
 to implement such callbacks will disable certain features within c-ares.  It
 is strongly recommended to implement all callbacks.
 
+\fBares_default_socket_functions_ex(3)\fP initializes \fIfuncs\fP with
+c-ares' default socket callbacks for the requested \fIversion\fP.  Pass
+\fBARES_SOCKET_FUNCTIONS_EX_VERSION\fP for the version supported by the
+headers used at build time.  After initialization, applications may replace
+individual callbacks before passing the structure to
+\fBares_set_socket_functions_ex(3)\fP.  The function returns
+\fBARES_EFORMERR\fP if \fIfuncs\fP is \fBNULL\fP or \fIversion\fP is not
+supported by the linked c-ares library.
+
 All callback functions are expected to operate like their system equivalents,
 and to set \fBerrno(2)\fP or \fBWSASetLastError(2)\fP to an appropriate error
 code on failure. It is strongly recommended that io callbacks are implemented
@@ -106,7 +120,8 @@ members and callbacks (which are different from the
 .TP 8
 .B unsigned int \fIversion\fP
 .br
-ABI Version of structure.  Must be set to a value of "1".
+ABI Version of structure.  Must be set to
+\fBARES_SOCKET_FUNCTIONS_EX_VERSION\fP.
 
 .TP 8
 .B unsigned int \fIflags\fP

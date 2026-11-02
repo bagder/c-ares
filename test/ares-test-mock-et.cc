@@ -196,7 +196,7 @@ static ares_ssize_t noop_sendto(ares_socket_t sock, const void *buffer,
 TEST_P(MockUDPEventThreadTest, DownServer) {
   struct ares_socket_functions_ex noop_sock_funcs;
   memset(&noop_sock_funcs, 0, sizeof(noop_sock_funcs));
-  noop_sock_funcs.version     = 1;
+  noop_sock_funcs.version     = ARES_SOCKET_FUNCTIONS_EX_VERSION;
   noop_sock_funcs.asocket     = noop_socket;
   noop_sock_funcs.aclose      = noop_close;
   noop_sock_funcs.asetsockopt = noop_setsockopt;

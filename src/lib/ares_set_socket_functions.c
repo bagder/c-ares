@@ -91,7 +91,7 @@ ares_status_t
                                const struct ares_socket_functions_ex *funcs,
                                void                                  *user_data)
 {
-  unsigned int known_versions[] = { 1 };
+  unsigned int known_versions[] = { ARES_SOCKET_FUNCTIONS_EX_VERSION };
   size_t       i;
 
   if (channel == NULL || funcs == NULL) {
@@ -443,7 +443,7 @@ static const char *default_aif_indextoname(unsigned int ifindex,
 }
 
 static const struct ares_socket_functions_ex default_socket_functions = {
-  1,
+  ARES_SOCKET_FUNCTIONS_EX_VERSION,
   ARES_SOCKFUNC_FLAG_NONBLOCKING,
   default_asocket,
   default_aclose,
@@ -456,6 +456,22 @@ static const struct ares_socket_functions_ex default_socket_functions = {
   default_aif_nametoindex,
   default_aif_indextoname
 };
+
+ares_status_t ares_default_socket_functions_ex(
+  struct ares_socket_functions_ex *funcs, unsigned int version)
+{
+  if (funcs == NULL) {
+    return ARES_EFORMERR;
+  }
+
+  switch (version) {
+    case ARES_SOCKET_FUNCTIONS_EX_VERSION:
+      *funcs = default_socket_functions;
+      return ARES_SUCCESS;
+    default:
+      return ARES_EFORMERR;
+  }
+}
 
 void ares_set_socket_functions_def(ares_channel_t *channel)
 {
@@ -563,7 +579,7 @@ static ares_ssize_t legacycb_asendto(ares_socket_t sock, const void *buffer,
 
 
 static const struct ares_socket_functions_ex legacy_socket_functions = {
-  1,
+  ARES_SOCKET_FUNCTIONS_EX_VERSION,
   0,
   legacycb_asocket,
   legacycb_aclose,

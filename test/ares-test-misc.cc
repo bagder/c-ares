@@ -743,6 +743,34 @@ TEST_F(LibraryTest, StrError) {
   EXPECT_EQ("unknown", std::string(str));
 }
 
+TEST_F(DefaultChannelTest, DefaultSocketFunctionsEx) {
+  struct ares_socket_functions_ex funcs;
+
+  EXPECT_EQ(ARES_EFORMERR,
+            ares_default_socket_functions_ex(
+              nullptr, ARES_SOCKET_FUNCTIONS_EX_VERSION));
+  EXPECT_EQ(ARES_EFORMERR,
+            ares_default_socket_functions_ex(&funcs, 0));
+  EXPECT_EQ(ARES_EFORMERR,
+            ares_default_socket_functions_ex(
+              &funcs, ARES_SOCKET_FUNCTIONS_EX_VERSION + 1));
+
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_default_socket_functions_ex(
+              &funcs, ARES_SOCKET_FUNCTIONS_EX_VERSION));
+  EXPECT_EQ(ARES_SOCKET_FUNCTIONS_EX_VERSION, funcs.version);
+  EXPECT_EQ(ARES_SOCKFUNC_FLAG_NONBLOCKING,
+            funcs.flags & ARES_SOCKFUNC_FLAG_NONBLOCKING);
+  EXPECT_NE(nullptr, funcs.asocket);
+  EXPECT_NE(nullptr, funcs.aclose);
+  EXPECT_NE(nullptr, funcs.asetsockopt);
+  EXPECT_NE(nullptr, funcs.aconnect);
+  EXPECT_NE(nullptr, funcs.arecvfrom);
+  EXPECT_NE(nullptr, funcs.asendto);
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_set_socket_functions_ex(channel_, &funcs, nullptr));
+}
+
 TEST_F(LibraryTest, UsageErrors) {
   ares_cancel(NULL);
   ares_set_socket_callback(NULL, NULL, NULL);
