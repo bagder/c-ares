@@ -26,6 +26,7 @@
 #include "ares-test.h"
 #include "dns-proto.h"
 
+#include <algorithm>
 #include <climits>
 #include <cstdint>
 #include <stdio.h>
@@ -1840,6 +1841,275 @@ TEST_F(LibraryTest, GetHostByNameHostsFile)
 
   ares_destroy(channel);
 }
+
+struct LocalhostHostsCase {
+  const char              *name;
+  const char              *hosts;
+  int                      family;
+  const char              *canonical;
+  std::vector<std::string> addresses;
+  bool                     discarded_names;
+};
+
+static void PrintTo(const LocalhostHostsCase &c, std::ostream *os)
+{
+  *os << c.name << " family=" << c.family << " hosts=\""
+      << (c.hosts ? c.hosts : "(missing)") << "\"";
+}
+
+class LocalhostHostsTest
+  : public LibraryTest,
+    public ::testing::WithParamInterface<LocalhostHostsCase> {
+public:
+  LocalhostHostsTest() : hostsfile_(GetParam().hosts ? GetParam().hosts : "")
+  {
+  }
+
+  void SetUp() override
+  {
+    struct ares_options opts       = {};
+    std::string         hosts_path = hostsfile_.filename();
+    if (GetParam().hosts == nullptr) {
+      hosts_path += ".missing";
+    }
+    opts.hosts_path = const_cast<char *>(hosts_path.c_str());
+    ASSERT_EQ(ARES_SUCCESS,
+              ares_init_options(&channel_, &opts, ARES_OPT_HOSTS_FILE));
+  }
+
+  void TearDown() override
+  {
+    ares_destroy(channel_);
+  }
+
+  std::vector<std::string> ExpectedAddresses(int filter = AF_UNSPEC)
+  {
+    std::vector<std::string> addresses;
+    for (const auto &ip : GetParam().addresses) {
+      unsigned char addr[16];
+      int family = ip.find(':') == std::string::npos ? AF_INET : AF_INET6;
+      if (filter != AF_UNSPEC && filter != family) {
+        continue;
+      }
+      EXPECT_EQ(1, ares_inet_pton(family, ip.c_str(), addr));
+      addresses.push_back(AddressToString(addr, family == AF_INET ? 4 : 16));
+    }
+    return addresses;
+  }
+
+  void CheckHost(const HostEnt &host)
+  {
+    EXPECT_EQ(GetParam().canonical, host.name_);
+    if (GetParam().discarded_names) {
+      EXPECT_TRUE(host.aliases_.empty());
+    }
+    if (GetParam().family != AF_UNSPEC) {
+      EXPECT_EQ(GetParam().family, host.addrtype_);
+    }
+    EXPECT_TRUE(host.addrtype_ == AF_INET || host.addrtype_ == AF_INET6);
+    EXPECT_EQ(ExpectedAddresses(host.addrtype_), host.addrs_);
+    EXPECT_FALSE(host.addrs_.empty());
+  }
+
+protected:
+  TempFile        hostsfile_;
+  ares_channel_t *channel_ = nullptr;
+};
+
+TEST_P(LocalhostHostsTest, GetAddrInfo)
+{
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family                  = GetParam().family;
+  hints.ai_flags                   = ARES_AI_CANONNAME | ARES_AI_NOSORT;
+  AddrInfoResult result            = {};
+  ares_getaddrinfo(channel_, GetParam().name, "1234", &hints, AddrInfoCallback,
+                   &result);
+  ProcessWork(channel_, NoExtraFDs, nullptr);
+  ASSERT_TRUE(result.done_);
+  ASSERT_EQ(ARES_SUCCESS, result.status_);
+  ASSERT_NE(nullptr, result.ai_);
+  ASSERT_NE(nullptr, result.ai_->cnames);
+  EXPECT_STREQ(GetParam().canonical, result.ai_->cnames->name);
+  if (GetParam().discarded_names) {
+    EXPECT_EQ(nullptr, result.ai_->cnames->alias);
+    EXPECT_EQ(nullptr, result.ai_->cnames->next);
+  }
+  std::vector<std::string> addresses;
+  for (auto *node = result.ai_->nodes; node; node = node->ai_next) {
+    if (node->ai_family == AF_INET) {
+      auto *addr = reinterpret_cast<struct sockaddr_in *>(node->ai_addr);
+      EXPECT_EQ(1234, ntohs(addr->sin_port));
+      addresses.push_back(AddressToString(&addr->sin_addr, 4));
+    } else {
+      ASSERT_EQ(AF_INET6, node->ai_family);
+      auto *addr = reinterpret_cast<struct sockaddr_in6 *>(node->ai_addr);
+      EXPECT_EQ(1234, ntohs(addr->sin6_port));
+      addresses.push_back(AddressToString(&addr->sin6_addr, 16));
+    }
+  }
+  auto expected = ExpectedAddresses();
+  std::sort(addresses.begin(), addresses.end());
+  std::sort(expected.begin(), expected.end());
+  EXPECT_EQ(expected, addresses);
+}
+
+TEST_P(LocalhostHostsTest, GetHostByName)
+{
+  HostResult result;
+  ares_gethostbyname(channel_, GetParam().name, GetParam().family, HostCallback,
+                     &result);
+  ProcessWork(channel_, NoExtraFDs, nullptr);
+  ASSERT_TRUE(result.done_);
+  ASSERT_EQ(ARES_SUCCESS, result.status_);
+  CheckHost(result.host_);
+}
+
+TEST_P(LocalhostHostsTest, GetHostByNameFile)
+{
+  struct hostent *host = nullptr;
+  EXPECT_EQ(ARES_SUCCESS, ares_gethostbyname_file(channel_, GetParam().name,
+                                                  GetParam().family, &host));
+  EXPECT_NE(nullptr, host);
+  if (host) {
+    CheckHost(HostEnt(host));
+  }
+  ares_free_hostent(host);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  HostsFile, LocalhostHostsTest,
+  ::testing::Values(
+    LocalhostHostsCase{
+      "localhost",
+      nullptr,
+      AF_INET,
+      "localhost",
+      { "127.0.0.1" },
+      false
+},
+    LocalhostHostsCase{ "localhost",
+                        nullptr,
+                        AF_INET6,
+                        "localhost",
+                        { "::1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        nullptr,
+                        AF_UNSPEC,
+                        "localhost",
+                        { "::1", "127.0.0.1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "192.0.2.10 localhost\n",
+                        AF_INET,
+                        "localhost",
+                        { "127.0.0.1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "2001:db8::10 localhost\n",
+                        AF_INET6,
+                        "localhost",
+                        { "::1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "192.0.2.10 localhost\n2001:db8::10 localhost\n",
+                        AF_UNSPEC,
+                        "localhost",
+                        { "::1", "127.0.0.1" },
+                        false },
+    LocalhostHostsCase{
+      "app.localhost",
+      "192.0.2.10 app.localhost\n2001:db8::10 app.localhost\n",
+      AF_UNSPEC,
+      "app.localhost",
+      { "::1", "127.0.0.1" },
+      false },
+    LocalhostHostsCase{ "app.localhost",
+                        "127.0.0.2 app.localhost\n",
+                        AF_INET,
+                        "app.localhost",
+                        { "127.0.0.2" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "127.0.0.1 localhost.localdomain localhost\n",
+                        AF_INET,
+                        "localhost.localdomain",
+                        { "127.0.0.1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "::1 localhost.localdomain localhost\n",
+                        AF_INET6,
+                        "localhost.localdomain",
+                        { "::1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "",
+                        AF_INET,
+                        "localhost",
+                        { "127.0.0.1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "",
+                        AF_INET6,
+                        "localhost",
+                        { "::1" },
+                        false },
+    LocalhostHostsCase{ "localhost",
+                        "127.0.0.2 localhost\n",
+                        AF_INET6,
+                        "localhost",
+                        { "::1" },
+                        false },
+    LocalhostHostsCase{
+      "app.localhost",
+      "192.0.2.10 app.localhost\n127.0.0.2 app.localhost\n"
+      "127.255.255.254 app.localhost\n128.0.0.1 app.localhost\n"
+      "126.255.255.255 app.localhost\n",
+      AF_INET,
+      "app.localhost",
+      { "127.0.0.2", "127.255.255.254" },
+      false },
+    LocalhostHostsCase{ "app.localhost",
+                        "2001:db8::10 app.localhost\n::1 app.localhost\n"
+                        "::ffff:127.0.0.1 app.localhost\n",
+                        AF_INET6,
+                        "app.localhost",
+                        { "::1" },
+                        false },
+    LocalhostHostsCase{ "app.localhost",
+                        "127.0.0.2 app.localhost\n",
+                        AF_UNSPEC,
+                        "app.localhost",
+                        { "127.0.0.2", "::1" },
+                        false },
+    LocalhostHostsCase{
+      "localhost",
+      "192.0.2.10 attacker.example localhost rejected.example\n",
+      AF_INET,
+      "localhost",
+      { "127.0.0.1" },
+      true },
+    LocalhostHostsCase{
+      "localhost",
+      "2001:db8::10 attacker.example localhost rejected.example\n",
+      AF_INET6,
+      "localhost",
+      { "::1" },
+      true },
+    LocalhostHostsCase{
+      "localhost",
+      "192.0.2.10 attacker.example localhost rejected.example\n"
+      "2001:db8::10 attacker.example localhost rejected.example\n",
+      AF_UNSPEC,
+      "localhost",
+      { "::1", "127.0.0.1" },
+      true },
+    LocalhostHostsCase{ "example.com",
+                        "192.0.2.10 example.com\n",
+                        AF_INET,
+                        "example.com",
+                        { "192.0.2.10" },
+                        false }));
 
 TEST_F(FileChannelTest, GetAddrInfoInvalidService) {
   TempFile hostsfile("1.2.3.4 example.com");

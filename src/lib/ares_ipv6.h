@@ -111,5 +111,8 @@ struct addrinfo {
 /* Defined in inet_net_pton.c for no particular reason. */
 extern const struct ares_in6_addr ares_in6addr_any; /* :: */
 
+#define ARES_IN_LOOPBACK(a) \
+  ((((long unsigned int)(a)) & 0xff000000) == 0x7f000000)
+
 
 #endif /* ARES_IPV6_H */

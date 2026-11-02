@@ -67,9 +67,6 @@ struct addrinfo_sort_elem {
 #define ARES_IPV6_ADDR_SCOPE_ORGLOCAL     0x08
 #define ARES_IPV6_ADDR_SCOPE_GLOBAL       0x0e
 
-#define ARES_IN_LOOPBACK(a) \
-  ((((long unsigned int)(a)) & 0xff000000) == 0x7f000000)
-
 /* RFC 4193. */
 #define ARES_IN6_IS_ADDR_ULA(a) (((a)->s6_addr[0] & 0xfe) == 0xfc)
 

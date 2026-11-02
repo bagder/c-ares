@@ -251,37 +251,6 @@ static size_t get6_address_index(const struct ares_in6_addr *addr,
   return i;
 }
 
-static ares_status_t ares_hostent_localhost(const char *name, int family,
-                                            struct hostent **host_out)
-{
-  ares_status_t              status;
-  struct ares_addrinfo      *ai = NULL;
-  struct ares_addrinfo_hints hints;
-
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = family;
-
-  ai = ares_malloc_zero(sizeof(*ai));
-  if (ai == NULL) {
-    status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
-    goto done;            /* LCOV_EXCL_LINE: OutOfMemory */
-  }
-
-  status = ares_addrinfo_localhost(name, 0, &hints, ai);
-  if (status != ARES_SUCCESS) {
-    goto done; /* LCOV_EXCL_LINE: OutOfMemory */
-  }
-
-  status = ares_addrinfo2hostent(ai, family, host_out);
-  if (status != ARES_SUCCESS) {
-    goto done; /* LCOV_EXCL_LINE: OutOfMemory */
-  }
-
-done:
-  ares_freeaddrinfo(ai);
-  return status;
-}
-
 /* I really have no idea why this is exposed as a public function, but since
  * it is, we can't kill this legacy function. */
 static ares_status_t ares_gethostbyname_file_int(ares_channel_t *channel,
@@ -290,6 +259,8 @@ static ares_status_t ares_gethostbyname_file_int(ares_channel_t *channel,
 {
   const ares_hosts_entry_t *entry = NULL;
   ares_status_t             status;
+  struct ares_addrinfo      *ai = NULL;
+  struct ares_addrinfo_hints hints;
 
   /* We only take the channel to ensure that ares_init() been called. */
   if (channel == NULL || name == NULL || host == NULL) {
@@ -308,31 +279,32 @@ static ares_status_t ares_gethostbyname_file_int(ares_channel_t *channel,
     return ARES_ENOTFOUND;
   }
 
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = family;
+  hints.ai_flags  = ARES_AI_CANONNAME;
+  ai              = ares_malloc_zero(sizeof(*ai));
+  if (ai == NULL) {
+    return ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
+  }
+
   status = ares_hosts_search_host(channel, ARES_FALSE, name, &entry);
   if (status != ARES_SUCCESS) {
     goto done;
   }
 
-  status = ares_hosts_entry_to_hostent(entry, family, host);
-  if (status != ARES_SUCCESS) {
-    goto done; /* LCOV_EXCL_LINE: OutOfMemory */
-  }
+  status = ares_hosts_entry_to_addrinfo(entry, name, family, 0, ARES_TRUE, ai);
 
 done:
-  /* RFC6761 section 6.3 #3 states that "Name resolution APIs and libraries
-   * SHOULD recognize localhost names as special and SHOULD always return the
-   * IP loopback address for address queries".
-   * We will also ignore ALL errors when trying to resolve localhost, such
-   * as permissions errors reading /etc/hosts or a malformed /etc/hosts.
-   *
-   * Also, just because the query itself returned success from /etc/hosts
-   * lookup doesn't mean it returned everything it needed to for all requested
-   * address families. As long as we're not on a critical out of memory
-   * condition pass it through to fill in any other address classes. */
+  /* RFC6761 section 6.3 #3: keep only loopback hosts entries for localhost,
+   * then synthesize any missing family, even if reading the hosts file failed.
+   * Do not ignore allocation failures. */
   if (status != ARES_ENOMEM && ares_is_localhost(name)) {
-    return ares_hostent_localhost(name, family, host);
+    status = ares_addrinfo_localhost(name, 0, &hints, ai);
   }
-
+  if (status == ARES_SUCCESS) {
+    status = ares_addrinfo2hostent(ai, family, host);
+  }
+  ares_freeaddrinfo(ai);
   return status;
 }
 

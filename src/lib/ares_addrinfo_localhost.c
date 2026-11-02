@@ -144,6 +144,34 @@ static ares_status_t
   return status;
 }
 
+static void ares_ai_remove_nonloopback(struct ares_addrinfo_node **nodes)
+{
+  while (*nodes != NULL) {
+    struct ares_addrinfo_node *node        = *nodes;
+    ares_bool_t                is_loopback = ARES_FALSE;
+
+    if (node->ai_family == AF_INET) {
+      const struct sockaddr_in *addr =
+        CARES_INADDR_CAST(const struct sockaddr_in *, node->ai_addr);
+      is_loopback =
+        ARES_IN_LOOPBACK(ntohl(addr->sin_addr.s_addr)) ? ARES_TRUE : ARES_FALSE;
+    } else if (node->ai_family == AF_INET6) {
+      const struct sockaddr_in6 *addr =
+        CARES_INADDR_CAST(const struct sockaddr_in6 *, node->ai_addr);
+      is_loopback =
+        IN6_IS_ADDR_LOOPBACK(&addr->sin6_addr) ? ARES_TRUE : ARES_FALSE;
+    }
+
+    if (is_loopback) {
+      nodes = &node->ai_next;
+    } else {
+      *nodes        = node->ai_next;
+      node->ai_next = NULL;
+      ares_freeaddrinfo_nodes(node);
+    }
+  }
+}
+
 static ares_status_t
   ares_system_loopback_addrs(int aftype, unsigned short port,
                              struct ares_addrinfo_node **nodes)
@@ -152,9 +180,7 @@ static ares_status_t
   !defined(__WATCOMC__)
   PMIB_UNICASTIPADDRESS_TABLE table;
   unsigned int                i;
-  ares_status_t               status = ARES_ENOTFOUND;
-
-  *nodes = NULL;
+  ares_status_t               status = ARES_SUCCESS;
 
   if (GetUnicastIpAddressTable((ADDRESS_FAMILY)aftype, &table) != NO_ERROR) {
     return ARES_ENOTFOUND;
@@ -232,6 +258,28 @@ ares_status_t ares_addrinfo_localhost(const char *name, unsigned short port,
   if (ai->name == NULL) {
     status = ARES_ENOMEM;
     goto done; /* LCOV_EXCL_LINE: OutOfMemory */
+  }
+
+  /* RFC6761 section 6.3 #3: hosts-file localhost answers must be loopback. */
+  ares_ai_remove_nonloopback(&ai->nodes);
+
+  /* Discard names from hosts entries with no surviving address. */
+  if (ai->nodes == NULL) {
+    ares_freeaddrinfo_cnames(ai->cnames);
+    ai->cnames = NULL;
+  }
+
+  if ((hints->ai_flags & ARES_AI_CANONNAME) && ai->cnames == NULL) {
+    struct ares_addrinfo_cname *cname = ares_append_addrinfo_cname(&ai->cnames);
+    if (cname == NULL) {
+      status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
+      goto done;            /* LCOV_EXCL_LINE: OutOfMemory */
+    }
+    cname->name = ares_strdup(name);
+    if (cname->name == NULL) {
+      status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
+      goto done;            /* LCOV_EXCL_LINE: OutOfMemory */
+    }
   }
 
   status = ares_system_loopback_addrs(hints->ai_family, port, &ai->nodes);
