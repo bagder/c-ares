@@ -265,6 +265,10 @@ typedef enum {
 #define ARES_OPT_QUERY_CACHE     (1 << 21)
 #define ARES_OPT_EVENT_THREAD    (1 << 22)
 #define ARES_OPT_SERVER_FAILOVER (1 << 23)
+#define ARES_OPT_THREAD_INIT_CB  (1 << 24)
+#define ARES_OPT_THREAD_DESTORY_CB  (1 << 25)
+
+
 
 /* Nameinfo flag values */
 #define ARES_NI_NOFQDN        (1 << 0)
@@ -337,6 +341,13 @@ typedef int ares_socket_t;
 typedef void (*ares_sock_state_cb)(void *data, ares_socket_t socket_fd,
                                    int readable, int writable);
 
+/* Called on event thread initialization */
+typedef void (*ares_thread_init_cb)(void* data);
+
+/* Called on event thread destruction */
+typedef void (*ares_thread_destory_cb)(void* data);
+
+
 struct apattern;
 
 /* Options controlling server failover behavior.
@@ -394,6 +405,10 @@ struct ares_options {
   unsigned int qcache_max_ttl;   /* Maximum TTL for query cache, 0=disabled */
   ares_evsys_t evsys;
   struct ares_server_failover_options server_failover_opts;
+  ares_thread_init_cb init_thread_cb;
+  void*               init_thread_cb_data;
+  ares_thread_destory_cb destroy_thread_cb;
+  void*                  destroy_thread_cb_data;
 };
 
 struct hostent;

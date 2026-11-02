@@ -33,11 +33,9 @@ void ares_destroy(ares_channel_t *channel)
 {
   size_t             i;
   ares_llist_node_t *node = NULL;
-
   if (channel == NULL) {
     return;
   }
-
   /* Mark as being shutdown */
   ares_channel_lock(channel);
   channel->sys_up = ARES_FALSE;

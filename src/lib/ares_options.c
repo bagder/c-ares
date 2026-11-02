@@ -514,6 +514,17 @@ ares_status_t ares_init_by_options(ares_channel_t            *channel,
     channel->server_retry_delay  = options->server_failover_opts.retry_delay;
   }
 
+  if (optmask & ARES_OPT_EVENT_THREAD){
+    if (optmask & ARES_OPT_THREAD_INIT_CB){
+      channel->init_thread_cb = options->init_thread_cb;
+      channel->init_thread_cb_data = options->init_thread_cb_data;
+    }
+    if (optmask & ARES_OPT_THREAD_DESTORY_CB){
+      channel->destory_thread_cb = options->destory_cb;
+      channel->destory_thread_cb_data = options->destory_cb_data;
+    }
+  }
+
   channel->optmask = (unsigned int)optmask;
 
   return ARES_SUCCESS;

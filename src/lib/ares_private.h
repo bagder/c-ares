@@ -350,6 +350,11 @@ struct ares_channeldata {
    * sure we don't take action. */
   ares_bool_t                         sys_up;
 
+  /* Called Inside the event-thread for user to hook data to the event-thread. */
+  ares_thread_init_cb                       init_thread_cb;
+  void*                                     init_thread_cb_data;
+  ares_thread_destory_cb                    destory_thread_cb;
+  void*                                     destory_thread_cb_data;
   /*! Set while ares_send_nolock() is running the refusal notification for a
    *  channel being destroyed.  Bounds the recursion at one frame when the
    *  application's callback responds by starting another lookup. */

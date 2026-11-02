@@ -331,6 +331,12 @@ static void *ares_event_thread(void *arg)
   ares_event_thread_t *e = arg;
   ares_thread_mutex_lock(e->mutex);
 
+  /* because we are an event-thread user's initialization should happen here
+  this is useful for interperter-code preventing unwanted deadlocking. */
+  if (e->channel->optmask & ARES_OPT_THREAD_INIT_CB){
+    e->channel->init_thread_cb(e->channel->init_thread_cb_data);
+  }
+
   while (e->isup) {
     struct timeval        tv;
     const struct timeval *tvout;
@@ -378,6 +384,10 @@ static void *ares_event_thread(void *arg)
 
   ares_thread_mutex_unlock(e->mutex);
 
+  /* Ensure user has chance to cleanup event-thread related data. */
+  if (e->channel->optmask & ARES_OPT_DESTORY_THREAD_CB){
+    e->channel->destory_thread_cb(e->channel->destroy_thread_cb_data);
+  }
   return NULL;
 }
 
@@ -404,7 +414,6 @@ static void ares_event_thread_destroy_int(ares_event_thread_t *e)
 
   ares_thread_mutex_destroy(e->mutex);
   e->mutex = NULL;
-
   ares_free(e);
 }
 
