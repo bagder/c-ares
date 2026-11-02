@@ -208,6 +208,22 @@ TEST_P(MockUDPChannelTest, DNS0x20BadReply) {
   EXPECT_EQ(ARES_ETIMEOUT, result.status_);
 }
 
+// A message without the QR bit is a query, not an answer, so it is dropped
+TEST_P(MockUDPChannelTest, QueryInsteadOfResponseIgnored) {
+  DNSPacket rsp;
+  rsp.set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A))
+    .add_answer(new DNSARR("www.google.com", 100, {1, 2, 3, 4}));
+  ON_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+
+  HostResult result;
+  ares_gethostbyname(channel_, "www.google.com.", AF_INET, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ETIMEOUT, result.status_);
+}
+
 // UDP only so mock server doesn't get confused by concatenated requests
 TEST_P(MockUDPChannelTest, GetHostByNameParallelLookups) {
   DNSPacket rsp1;

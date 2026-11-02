@@ -1095,6 +1095,13 @@ static ares_status_t process_answer(ares_channel_t      *channel,
     goto cleanup;
   }
 
+  /* RFC 1035 4.1.1: QR clear means a query, not an answer (e.g. our own query
+   * reflected back).  Drop it like an unknown query id. */
+  if (!(ares_dns_record_get_flags(rdnsrec) & ARES_FLAG_QR)) {
+    status = ARES_SUCCESS;
+    goto cleanup;
+  }
+
   /* Find the query corresponding to this packet. The queries are
    * hashed/bucketed by query id, so this lookup should be quick.
    */
