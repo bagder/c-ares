@@ -208,6 +208,59 @@ TEST_P(MockUDPChannelTest, DNS0x20BadReply) {
   EXPECT_EQ(ARES_ETIMEOUT, result.status_);
 }
 
+TEST_P(MockUDPChannelTest, DNS0x20EscapedLongName) {
+  /* A literal '.' inside a label is presented as "\.", so this 189 octet name
+   * (3 labels of 63 '.' octets) has a 380 character presentation form, which
+   * did not fit the DNS 0x20 name buffer and failed with ARES_EBADNAME before
+   * anything was sent.  It has no alpha characters, so 0x20 leaves the wire
+   * form unchanged and the canned reply's question matches. */
+  std::string label;
+  for (size_t i = 0; i < 63; i++) {
+    label += "\\.";
+  }
+  std::string name = label + "." + label + "." + label;
+  EXPECT_EQ(380U, name.size());
+
+  std::vector<byte> reply = {
+    0x00, 0x00,  // qid
+    0x84, // response + query + AA + not-TC + not-RD
+    0x00, // not-RA + not-Z + not-AD + not-CD + rc=NoError
+    0x00, 0x01,  // 1 question
+    0x00, 0x01,  // 1 answer RRs
+    0x00, 0x00,  // 0 authority RRs
+    0x00, 0x00,  // 0 additional RRs
+  };
+  // Question
+  for (size_t i = 0; i < 3; i++) {
+    reply.push_back(63);
+    reply.insert(reply.end(), 63, '.');
+  }
+  std::vector<byte> rest = {
+    0x00,
+    0x00, 0x01,  // type A
+    0x00, 0x01,  // class IN
+    // Answer
+    0xC0, 0x0C,  // pointer to question name
+    0x00, 0x01,  // type A
+    0x00, 0x01,  // class IN
+    0x00, 0x00, 0x01, 0x00,  // TTL
+    0x00, 0x04,  // rdata length
+    0x01, 0x02, 0x03, 0x04
+  };
+  reply.insert(reply.end(), rest.begin(), rest.end());
+
+  ON_CALL(server_, OnRequest(testing::_, T_A))
+    .WillByDefault(SetReplyData(&server_, reply));
+
+  QueryResult result;
+  EXPECT_EQ(ARES_SUCCESS,
+            ares_query_dnsrec(channel_, name.c_str(), ARES_CLASS_IN,
+                              ARES_REC_TYPE_A, QueryCallback, &result, NULL));
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
 // UDP only so mock server doesn't get confused by concatenated requests
 TEST_P(MockUDPChannelTest, GetHostByNameParallelLookups) {
   DNSPacket rsp1;

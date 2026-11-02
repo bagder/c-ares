@@ -26,6 +26,17 @@
 #ifndef __ARES_DNS_PRIVATE_H
 #define __ARES_DNS_PRIVATE_H
 
+/* RFC 1035 3.1 limits a name to 255 octets.  We track presentation length
+ * (label octets plus one separator before each label after the first), which is
+ * up to ~2 octets looser than the strict wire limit and so never rejects a
+ * compliant name.  Shared by the read and write paths. */
+#define ARES_MAX_NAME_PRESENTATION_LEN 255
+
+/* The presentation form escapes each octet as up to "\DDD" (4 chars), so a
+ * valid name's escaped string can reach 4x its unescaped length.  Buffers and
+ * limits that hold an already-escaped name must use this, not the 255 above. */
+#define ARES_MAX_NAME_ESCAPED_LEN (ARES_MAX_NAME_PRESENTATION_LEN * 4)
+
 ares_status_t ares_dns_record_duplicate_ex(ares_dns_record_t      **dest,
                                            const ares_dns_record_t *src);
 ares_bool_t ares_dns_rec_allow_name_comp(ares_dns_rec_type_t type);

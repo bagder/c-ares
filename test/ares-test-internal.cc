@@ -2756,6 +2756,62 @@ TEST_F(LibraryTest, DNSNameCompression14Bit) {
   ares_dns_record_destroy(dnsrec);
 }
 
+TEST_F(LibraryTest, DNSNameWriteEscapedPresentation) {
+  /* A name is at most 255 octets on the wire, but its presentation form
+   * escapes each non-printable octet as "\DDD" (4 chars).  A 3x63 octet name
+   * of 0xFF (192 wire octets, well under the 255 limit) therefore has a 758
+   * character presentation form, which did not fit the writer's fixed name
+   * buffer and made ares_dns_write() reject this valid name with
+   * ARES_EBADNAME.  It must round-trip. */
+  std::string label;
+  for (size_t i = 0; i < 63; i++) {
+    label += "\\255";
+  }
+  std::string name = label + "." + label + "." + label;
+  EXPECT_EQ(758U, name.size());
+
+  ares_dns_record_t *dnsrec = NULL;
+  ares_dns_rr_t     *rr     = NULL;
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_create(&dnsrec, 0x1234, ARES_FLAG_QR,
+      ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_query_add(dnsrec, "example.com", ARES_REC_TYPE_NS,
+      ARES_CLASS_IN));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_rr_add(&rr, dnsrec, ARES_SECTION_ANSWER, "example.com",
+      ARES_REC_TYPE_NS, ARES_CLASS_IN, 0));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_str(rr, ARES_RR_NS_NSDNAME, name.c_str()));
+
+  unsigned char *msg    = NULL;
+  size_t         msglen = 0;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec, &msg, &msglen));
+
+  ares_dns_record_t *parsed = NULL;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_parse(msg, msglen, 0, &parsed));
+  ASSERT_NE(nullptr, parsed);
+  const ares_dns_rr_t *nrr =
+    ares_dns_record_rr_get_const(parsed, ARES_SECTION_ANSWER, 0);
+  ASSERT_NE(nullptr, nrr);
+  EXPECT_STREQ(name.c_str(), ares_dns_rr_get_str(nrr, ARES_RR_NS_NSDNAME));
+
+  ares_dns_record_destroy(parsed);
+  ares_free_string(msg);
+
+  /* A name longer than any valid escaped presentation form is rejected rather
+   * than truncated into a different name. */
+  std::string toolong(1100, 'a');
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_str(rr, ARES_RR_NS_NSDNAME, toolong.c_str()));
+  msg    = NULL;
+  msglen = 0;
+  EXPECT_EQ(ARES_EBADNAME, ares_dns_write(dnsrec, &msg, &msglen));
+  EXPECT_EQ(nullptr, msg);
+
+  ares_dns_record_destroy(dnsrec);
+}
+
 #ifndef CARES_SYMBOL_HIDING
 /* Regression coverage for the zero-length salt/type-bitmap code paths in
 * NSEC3 and NSEC3PARAM (empty non-terminal / opt-out per RFC 5155 7.1),
