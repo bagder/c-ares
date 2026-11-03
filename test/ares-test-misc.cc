@@ -446,6 +446,19 @@ TEST_F(DefaultChannelTest, GetAddrinfoNullNameNullService) {
   EXPECT_EQ(ARES_ENOTFOUND, result.status_);
 }
 
+// Numeric service should resolve directly to that port even without ARES_AI_NUMERICSERV.
+TEST_F(DefaultChannelTest, GetAddrinfoNumericServiceWithoutNumericFlag) {
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {0, 0, 0, 0};
+  hints.ai_family = AF_INET;
+  hints.ai_flags  = 0;
+  ares_getaddrinfo(channel_, "127.0.0.1", "56070", &hints, AddrInfoCallback, &result);
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  std::set<std::string> expected = {"127.0.0.1:56070"};
+  EXPECT_EQ(expected, AddrInfoNodeStrings(result));
+}
+
 // Interesting question: should tacking on a search domain let the query
 // through? It seems safer to reject it because "supersecret.onion.search"
 // still leaks information about the query to malicious resolvers.
