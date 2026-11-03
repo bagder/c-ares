@@ -1823,6 +1823,66 @@ TEST_P(MockTCPChannelTest, SearchOptVal) {
             ss.str());
 }
 
+// Every outgoing query is serialized through ares_dns_write_buf_tcp(),
+// which used to write the 2 byte length prefix into the target buffer
+// before serializing the message into the same buffer.  Name compression
+// offsets are recorded as positions in the buffer being written, but on
+// the wire they are offsets from the start of the DNS message (RFC 1035
+// 4.1.4), so every emitted pointer was 2 bytes past its target.  A query
+// with an additional section record owned by the question name reaches
+// the wire pointing into the middle of the QNAME, and the receiver cannot
+// expand it.  The expected request string below only matches when the
+// additional owner expands back to the question name.  Digits carry no
+// case, keeping the string immune to DNS 0x20 randomization.
+TEST_P(MockTCPChannelTest, AdditionalOwnerPointerNotSkewedByTcpFraming) {
+  std::string exp_req = "REQ QRY RD  Q:{'1.2.3.4.5.6' IN A} "
+    "ADD:{'1.2.3.4.5.6' IN A TTL=0 2.3.4.5} "
+    "ADD:{'' MAXUDP=1232 OPT RCODE2=0 00030006632d61726573}";
+  DNSPacket reply;
+  reply.set_response().set_aa()
+    .add_question(new DNSQuestion("1.2.3.4.5.6", T_A))
+    .add_answer(new DNSARR("1.2.3.4.5.6", 100, {9, 9, 9, 9}));
+  ON_CALL(server_, OnRequest("1.2.3.4.5.6", T_A))
+    .WillByDefault(SetReplyExpRequest(&server_, &reply, exp_req));
+
+  /* Query record with an additional A record owned by the question name,
+   * so the owner must be emitted as a pointer to the QNAME, plus the same
+   * OPT record the test above uses. */
+  struct in_addr        addr;
+  const unsigned char opt_val[6] = { 'c', '-', 'a', 'r', 'e', 's' };
+  const unsigned short opt_opt   = 3;
+  ares_dns_record_t   *dnsrec    = NULL;
+  ares_dns_rr_t       *rr        = NULL;
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_create(&dnsrec, 0, ARES_FLAG_RD, ARES_OPCODE_QUERY,
+      ARES_RCODE_NOERROR));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_query_add(dnsrec, "1.2.3.4.5.6", (ares_dns_rec_type_t)T_A,
+      (ares_dns_class_t)C_IN));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_rr_add(&rr, dnsrec, ARES_SECTION_ADDITIONAL, "1.2.3.4.5.6",
+      ARES_REC_TYPE_A, ARES_CLASS_IN, 0));
+  EXPECT_EQ(1, ares_inet_pton(AF_INET, "2.3.4.5", &addr));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_rr_set_addr(rr, ARES_RR_A_ADDR, &addr));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_record_rr_add(&rr, dnsrec, ARES_SECTION_ADDITIONAL, "",
+      ARES_REC_TYPE_OPT, ARES_CLASS_IN, 0));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_u16(rr, ARES_RR_OPT_UDP_SIZE, 1232));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_rr_set_u8(rr, ARES_RR_OPT_VERSION, 0));
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_rr_set_u16(rr, ARES_RR_OPT_FLAGS, 0));
+  EXPECT_EQ(ARES_SUCCESS,
+    ares_dns_rr_set_opt(rr, ARES_RR_OPT_OPTIONS, opt_opt, opt_val,
+      sizeof(opt_val)));
+
+  SearchResult result;
+  ares_search_dnsrec(channel_, dnsrec, SearchCallbackDnsRec, &result);
+  ares_dns_record_destroy(dnsrec);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
 TEST_P(MockChannelTest, V4WorksV6Timeout) {
   std::vector<byte> nothing;
   DNSPacket reply;

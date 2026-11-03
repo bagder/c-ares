@@ -2757,6 +2757,128 @@ TEST_F(LibraryTest, DNSNameCompression14Bit) {
 }
 
 #ifndef CARES_SYMBOL_HIDING
+/* Two queries queued in one connection buffer serialize as length framed
+ * messages back to back, exactly like ares_conn_query_write() produces for
+ * a TCP connection (or a UDP connection with a partial write).  Name
+ * compression offsets count from the start of each DNS message (RFC 1035
+ * 4.1.4), so every frame must parse back with its additional section owner
+ * intact, no matter how many bytes precede it in the buffer. */
+TEST_F(LibraryTest, TCPFrameQueuedWritesKeepMessageRelativeOffsets)
+{
+  ares_dns_record_t *dnsrec = NULL;
+  ares_dns_rr_t     *rr     = NULL;
+  struct in_addr     addr;
+
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_create(&dnsrec, 0x1234, ARES_FLAG_RD,
+                                   ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_query_add(dnsrec, "example.com", ARES_REC_TYPE_ANY,
+                                      ARES_CLASS_IN));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_rr_add(
+                            &rr, dnsrec, ARES_SECTION_ADDITIONAL, "example.com",
+                            ARES_REC_TYPE_A, ARES_CLASS_IN, 0));
+  ASSERT_EQ(1, ares_inet_pton(AF_INET, "2.3.4.5", &addr));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_rr_set_addr(rr, ARES_RR_A_ADDR, &addr));
+
+  ares_buf_t *frames = ares_buf_create();
+  ASSERT_NE(nullptr, frames);
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_write_buf_tcp(dnsrec, frames));
+  const size_t first_len = ares_buf_len(frames);
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_write_buf_tcp(dnsrec, frames));
+  const size_t total_len = ares_buf_len(frames);
+  ASSERT_LT(first_len, total_len);
+
+  size_t               len  = 0;
+  const unsigned char *data = ares_buf_peek(frames, &len);
+  ASSERT_EQ(total_len, len);
+
+  /* Walk both frames: verify each 16-bit length prefix matches the frame
+   * size and each message parses with the additional owner intact. */
+  size_t off = 0;
+  for (int frame = 0; frame < 2; frame++) {
+    SCOPED_TRACE(frame);
+    ASSERT_LE(off + 2, len);
+    size_t msg_len = ((size_t)data[off] << 8) | data[off + 1];
+    ASSERT_LE(off + 2 + msg_len, len);
+    ares_dns_record_t *parsed = NULL;
+    EXPECT_EQ(ARES_SUCCESS,
+              ares_dns_parse(data + off + 2, msg_len, 0, &parsed));
+    if (parsed != NULL) {
+      const ares_dns_rr_t *prr =
+        ares_dns_record_rr_get_const(parsed, ARES_SECTION_ADDITIONAL, 0);
+      EXPECT_NE(nullptr, prr);
+      if (prr != NULL) {
+        EXPECT_STREQ("example.com", ares_dns_rr_get_name(prr));
+      }
+      ares_dns_record_destroy(parsed);
+    }
+    off += 2 + msg_len;
+  }
+  EXPECT_EQ(total_len, off);
+
+  ares_buf_destroy(frames);
+  ares_dns_record_destroy(dnsrec);
+}
+
+/* The TCP framer must leave the target buffer untouched when any allocation
+ * inside it fails, matching the rollback contract the connection buffer
+ * relies on. */
+TEST_F(LibraryTest, TCPFrameAllocFailureRollsBackBuffer)
+{
+  ares_dns_record_t *dnsrec = NULL;
+  ares_dns_rr_t     *rr     = NULL;
+  struct in_addr     addr;
+
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_create(&dnsrec, 0x1234, ARES_FLAG_RD,
+                                   ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_query_add(dnsrec, "example.com", ARES_REC_TYPE_ANY,
+                                      ARES_CLASS_IN));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_rr_add(
+                            &rr, dnsrec, ARES_SECTION_ADDITIONAL, "example.com",
+                            ARES_REC_TYPE_A, ARES_CLASS_IN, 0));
+  ASSERT_EQ(1, ares_inet_pton(AF_INET, "2.3.4.5", &addr));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_rr_set_addr(rr, ARES_RR_A_ADDR, &addr));
+
+  /* A clean run first to size the success case. */
+  ares_buf_t *probe = ares_buf_create();
+  ASSERT_NE(nullptr, probe);
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_write_buf_tcp(dnsrec, probe));
+  ares_buf_destroy(probe);
+
+  for (int n = 1; n <= 12; n++) {
+    SCOPED_TRACE(n);
+    ares_buf_t *buf = ares_buf_create();
+    ASSERT_NE(nullptr, buf);
+    /* Two sentinel bytes so a rollback to the original length is visible. */
+    ASSERT_EQ(ARES_SUCCESS, ares_buf_append_byte(buf, 0xAA));
+    ASSERT_EQ(ARES_SUCCESS, ares_buf_append_byte(buf, 0xBB));
+    ClearFails();
+    SetAllocFail(n);
+    ares_status_t status = ares_dns_write_buf_tcp(dnsrec, buf);
+    if (status == ARES_ENOMEM) {
+      /* Rolled back: same length, same sentinel bytes. */
+      size_t               len = 0;
+      const unsigned char *dat = ares_buf_peek(buf, &len);
+      ASSERT_EQ(2U, len);
+      if (len == 2) {
+        EXPECT_EQ(0xAA, dat[0]);
+        EXPECT_EQ(0xBB, dat[1]);
+      }
+    } else {
+      EXPECT_EQ(ARES_SUCCESS, status);
+      EXPECT_GT(ares_buf_len(buf), 2U);
+    }
+    ares_buf_destroy(buf);
+  }
+
+  ares_dns_record_destroy(dnsrec);
+}
+#endif /* !CARES_SYMBOL_HIDING */
+
+#ifndef CARES_SYMBOL_HIDING
 /* Regression coverage for the zero-length salt/type-bitmap code paths in
 * NSEC3 and NSEC3PARAM (empty non-terminal / opt-out per RFC 5155 7.1),
 * which the parser represents via ares_dns_rr_set_bin_own(..., NULL, 0).

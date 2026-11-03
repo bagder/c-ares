@@ -1474,10 +1474,10 @@ done:
 ares_status_t ares_dns_write_buf_tcp(const ares_dns_record_t *dnsrec,
                                      ares_buf_t              *buf)
 {
+  ares_buf_t   *msgbuf = NULL;
   ares_status_t status;
   size_t        orig_len;
   size_t        msg_len;
-  size_t        len;
 
   if (dnsrec == NULL || buf == NULL) {
     return ARES_EFORMERR;
@@ -1485,31 +1485,48 @@ ares_status_t ares_dns_write_buf_tcp(const ares_dns_record_t *dnsrec,
 
   orig_len = ares_buf_len(buf);
 
-  /* Write placeholder for length */
-  status = ares_buf_append_be16(buf, 0);
-  if (status != ARES_SUCCESS) {
-    goto done; /* LCOV_EXCL_LINE: OutOfMemory */
+  /* Serialize the message into a fresh buffer first, then frame it into the
+   * target buffer.  Name compression offsets are recorded as positions in
+   * the buffer being written, but on the wire they count from the start of
+   * the DNS message (RFC 1035 4.1.4).  Serializing directly into the target
+   * buffer, which already holds the 2 byte length prefix here (and possibly
+   * earlier queued messages), would skew every emitted pointer by that
+   * amount. */
+  msgbuf = ares_buf_create();
+  if (msgbuf == NULL) {
+    status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
+    goto done;            /* LCOV_EXCL_LINE: OutOfMemory */
   }
 
-  /* Write message */
-  status = ares_dns_write_buf(dnsrec, buf);
+  status = ares_dns_write_buf(dnsrec, msgbuf);
   if (status != ARES_SUCCESS) {
     goto done;
   }
 
-  len     = ares_buf_len(buf);
-  msg_len = len - orig_len - 2;
-
-  /* Now we need to overwrite the length, so we jump back to the original
-   * message length, overwrite the section and jump back */
-  ares_buf_set_length(buf, orig_len);
-  status = ares_buf_append_be16(buf, (unsigned short)(msg_len & 0xFFFF));
-  if (status != ARES_SUCCESS) {
-    goto done; /* LCOV_EXCL_LINE: UntestablePath */
+  msg_len = ares_buf_len(msgbuf);
+  if (msg_len > 65535) {
+    status = ARES_EBADQUERY;
+    goto done;
   }
-  ares_buf_set_length(buf, len);
+
+  status = ares_buf_append_be16(buf, (unsigned short)msg_len);
+  if (status != ARES_SUCCESS) {
+    goto done; /* LCOV_EXCL_LINE: OutOfMemory */
+  }
+
+  {
+    size_t               len = 0;
+    const unsigned char *ptr = ares_buf_peek(msgbuf, &len);
+    if (len != 0) {
+      status = ares_buf_append(buf, ptr, len);
+      if (status != ARES_SUCCESS) {
+        goto done; /* LCOV_EXCL_LINE: OutOfMemory */
+      }
+    }
+  }
 
 done:
+  ares_buf_destroy(msgbuf);
   if (status != ARES_SUCCESS) {
     ares_buf_set_length(buf, orig_len);
   }
