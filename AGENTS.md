@@ -50,6 +50,10 @@ ninja -C build
   overflow-checked (`ares_malloc_array`, `ares_realloc_array`,
   `ares_malloc_zero_array`, `ares_realloc_zero_array`, or
   `ares_size_t_mul_overflow`).  Never `malloc(0)`.
+- Safe Buffers: sources listed in `CARES_SAFE_BUFFERS_SOURCES`
+  (`src/lib/CMakeLists.txt`) build with clang's `-Wunsafe-buffer-usage`,
+  so no pointer arithmetic and no indexing through raw pointers there.
+  Add a file to the list once it builds clean.
 - Errors: return `ares_status_t`; single-exit `goto done` cleanup.
 - Strings/ctype: `ares_str.h` helpers (`ares_streq`, `ares_strcaseeq`,
   `ares_isdigit`, `ares_str_parse_uint`, ...).  libc `str*`, `atoi`,

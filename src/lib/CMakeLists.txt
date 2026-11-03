@@ -5,6 +5,51 @@
 transform_makefile_inc("Makefile.inc" "${PROJECT_BINARY_DIR}/src/lib/Makefile.inc.cmake")
 include(${PROJECT_BINARY_DIR}/src/lib/Makefile.inc.cmake)
 
+# Safe Buffers: these sources do no pointer arithmetic and no indexing through
+# raw pointers; all buffer access goes through ares_buf and the other internal
+# containers (see "Internal library" in AGENTS.md).  clang's
+# -Wunsafe-buffer-usage keeps them that way, as an error with CARES_WERROR.
+# When another file builds clean under it, add the file here.
+SET (CARES_SAFE_BUFFERS_SOURCES
+	ares_cancel.c
+	ares_close_sockets.c
+	ares_free_string.c
+	ares_freeaddrinfo.c
+	ares_getenv.c
+	ares_hosts_file.c
+	ares_parse_into_addrinfo.c
+	ares_query.c
+	ares_strerror.c
+	ares_timeout.c
+	ares_version.c
+	dsa/ares_htable_strvp.c
+	dsa/ares_htable_szvp.c
+	dsa/ares_htable_vpstr.c
+	dsa/ares_htable_vpvp.c
+	dsa/ares_llist.c
+	legacy/ares_create_query.c
+	legacy/ares_expand_name.c
+	legacy/ares_expand_string.c
+	legacy/ares_parse_a_reply.c
+	legacy/ares_parse_aaaa_reply.c
+	legacy/ares_parse_caa_reply.c
+	legacy/ares_parse_mx_reply.c
+	legacy/ares_parse_naptr_reply.c
+	legacy/ares_parse_soa_reply.c
+	legacy/ares_parse_srv_reply.c
+	legacy/ares_parse_txt_reply.c
+	legacy/ares_parse_uri_reply.c
+	record/ares_dns_multistring.c
+	record/ares_dns_parse.c
+	str/ares_idnamap.c
+	util/ares_timeval.c
+)
+CHECK_C_COMPILER_FLAG (-Wunsafe-buffer-usage HAVE_WUNSAFE_BUFFER_USAGE)
+IF (HAVE_WUNSAFE_BUFFER_USAGE)
+	SET_SOURCE_FILES_PROPERTIES (${CARES_SAFE_BUFFERS_SOURCES}
+		PROPERTIES COMPILE_FLAGS -Wunsafe-buffer-usage)
+ENDIF ()
+
 # Write ares_config.h configuration file.  This is used only for the build.
 CONFIGURE_FILE (ares_config.h.cmake ${PROJECT_BINARY_DIR}/ares_config.h)
 

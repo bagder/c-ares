@@ -41,12 +41,17 @@ ares_status_t ares_expand_name_validated(const unsigned char *encoded,
   ares_status_t status;
   ares_buf_t   *buf = NULL;
   size_t        start_len;
+  size_t        offset;
 
   if (encoded == NULL || abuf == NULL || alen == 0 || enclen == NULL) {
     return ARES_EBADNAME; /* EFORMERR would be better */
   }
 
-  if (encoded < abuf || encoded >= abuf + alen) {
+  if (encoded < abuf) {
+    return ARES_EBADNAME; /* EFORMERR would be better */
+  }
+  offset = (size_t)(encoded - abuf);
+  if (offset >= alen) {
     return ARES_EBADNAME; /* EFORMERR would be better */
   }
 
@@ -63,7 +68,7 @@ ares_status_t ares_expand_name_validated(const unsigned char *encoded,
     return ARES_ENOMEM;
   }
 
-  status = ares_buf_set_position(buf, (size_t)(encoded - abuf));
+  status = ares_buf_set_position(buf, offset);
   if (status != ARES_SUCCESS) {
     goto done;
   }
