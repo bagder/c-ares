@@ -670,18 +670,16 @@ static void ares_getaddrinfo_int(ares_channel_t *channel, const char *name,
   }
 
   if (service) {
-    if (hints->ai_flags & ARES_AI_NUMERICSERV) {
-      if (!ares_parse_port(service, &port, ARES_TRUE)) {
-        callback(arg, ARES_ESERVICE, 0, NULL);
-        return;
-      }
+    if (ares_parse_port(service, &port, ARES_TRUE)) {
+      /* service is a numeric port */
+    } else if (hints->ai_flags & ARES_AI_NUMERICSERV) {
+      callback(arg, ARES_ESERVICE, 0, NULL);
+      return;
     } else {
       port = lookup_service(service, 0);
       if (!port) {
-        if (!ares_parse_port(service, &port, ARES_TRUE)) {
-          callback(arg, ARES_ESERVICE, 0, NULL);
-          return;
-        }
+        callback(arg, ARES_ESERVICE, 0, NULL);
+        return;
       }
     }
   }
