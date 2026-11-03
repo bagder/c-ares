@@ -25,10 +25,13 @@
  */
 #include "ares_private.h"
 
-/* RFC 1035 3.1 limits a name to 255 octets.  We track presentation length
- * (label octets plus one separator before each label after the first), which is
- * up to ~2 octets looser than the strict wire limit and so never rejects a
- * compliant name.  Shared by the read and write paths. */
+/* RFC 1035 3.1 limits a name to 255 octets: label payload, one length
+ * octet per label, and the terminating root octet.  Both the read path
+ * (ares_dns_name_parse()) and the write path (ares_split_dns_name())
+ * account for those octets the same way, so a name one side accepts
+ * round-trips through the other.  (Historically both sides counted
+ * presentation characters instead — label data plus separators — which
+ * admitted names up to 257 wire octets.) */
 #define ARES_MAX_NAME_PRESENTATION_LEN 255
 
 /* A name of <= 255 octets holds at most 128 labels, so it can never
@@ -60,8 +63,14 @@ static ares_status_t ares_nameoffset_create(ares_llist_t **list,
   ares_status_t      status;
   ares_nameoffset_t *off = NULL;
 
-  if (list == NULL || name == NULL || ares_strlen(name) == 0 ||
-      ares_strlen(name) > ARES_MAX_NAME_PRESENTATION_LEN) {
+  /* A name is only recorded after ares_split_dns_name() has validated it
+   * against the RFC 1035 255-octet wire limit, so its presentation form
+   * may legitimately be up to 1003 characters (four labels of non-printable
+   * bytes, every byte escaped as \DDD); measuring the wire limit in
+   * presentation characters would reject those valid names.  The recorded
+   * name is heap-allocated and only ever compared as a string, so its
+   * length needs no cap here. */
+  if (list == NULL || name == NULL || ares_strlen(name) == 0) {
     return ARES_EFORMERR; /* LCOV_EXCL_LINE: DefensiveCoding */
   }
 
@@ -360,9 +369,12 @@ static ares_status_t ares_split_dns_name(ares_array_t *labels,
     total_len += len;
   }
 
-  /* Can't exceed maximum (unescaped) length */
+  /* Can't exceed the RFC 1035 maximum of 255 wire octets: label payload,
+   * one length octet per label, and the terminating root octet.  This
+   * matches the accounting ares_dns_name_parse() enforces, so a name one
+   * side accepts round-trips through the other. */
   if (ares_array_len(labels) &&
-      total_len + ares_array_len(labels) - 1 > ARES_MAX_NAME_PRESENTATION_LEN) {
+      total_len + ares_array_len(labels) + 1 > ARES_MAX_NAME_PRESENTATION_LEN) {
     status = ARES_EBADNAME;
     goto done;
   }
@@ -383,11 +395,24 @@ ares_status_t ares_dns_name_write(ares_buf_t *buf, ares_llist_t **list,
   size_t                   orig_name_len;
   size_t                   pos    = ares_buf_len(buf);
   ares_array_t            *labels = NULL;
-  char                     name_copy[512];
+  /* RFC 1035 limits a name to 255 wire octets including the per-label
+   * length octets and the root terminator, so the longest valid name is
+   * four labels of 63+63+63+61 bytes: 250 payload + 4 length octets +
+   * 1 root = 255 octets.  When every payload byte is non-printable and
+   * escaped as \DDD that renders as 4 * 250 + 3 = 1003 presentation
+   * characters, so the copy buffer must hold at least 1004 bytes. */
+  char                     name_copy[1024];
   ares_status_t            status;
 
   if (buf == NULL || name == NULL) {
     return ARES_EFORMERR; /* LCOV_EXCL_LINE: DefensiveCoding */
+  }
+
+  /* Longer than the buffer can only mean an invalid name (every wire-legal
+   * name fits, per the comment above); a silent truncation here would emit
+   * a different name than the record holds. */
+  if (ares_strlen(name) >= sizeof(name_copy)) {
+    return ARES_EBADNAME;
   }
 
   labels = ares_array_create(sizeof(ares_buf_t *), ares_dns_labels_free_cb);
@@ -569,8 +594,11 @@ ares_status_t ares_dns_name_parse(ares_buf_t *buf, char **name,
   ares_status_t status;
   ares_buf_t   *namebuf     = NULL;
   size_t        label_start = ares_buf_get_position(buf);
-  size_t        name_len    = 0;
-  size_t        indir       = 0;
+  /* Wire length accumulator: starts at 1 for the terminating root octet,
+   * gains 1 + label_len per label (length octet + data), and is capped at
+   * the RFC 1035 255-octet name limit below. */
+  size_t        name_len = 1;
+  size_t        indir    = 0;
 
   if (buf == NULL) {
     return ARES_EFORMERR;
@@ -683,15 +711,13 @@ ares_status_t ares_dns_name_parse(ares_buf_t *buf, char **name,
 
     /* New label */
 
-    /* RFC 1035 3.1 limits a name to 255 octets.  Enforce it during
-     * decompression so labels reached through a chain of pointers can't expand
-     * a single name without bound.  Track the presentation length (label data
-     * plus the separator that precedes each label after the first), matching
-     * ares_split_dns_name() on the write side. */
-    if (name_len) {
-      name_len++;
-    }
-    name_len += c;
+    /* RFC 1035 3.1 limits a name to 255 octets, including the per-label
+     * length octets and the terminating root octet.  Enforce it during
+     * decompression so labels reached through a chain of pointers can't
+     * expand a single name without bound.  Count the wire octets (length
+     * octet + label data, plus the root terminator accounted once at
+     * initialization), matching ares_split_dns_name() on the write side. */
+    name_len += 1 + c;
     if (name_len > ARES_MAX_NAME_PRESENTATION_LEN) {
       status = ARES_EBADNAME;
       goto fail;

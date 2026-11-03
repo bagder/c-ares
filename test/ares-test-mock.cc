@@ -265,6 +265,83 @@ TEST_P(MockUDPChannelTest, TruncationRetry) {
   EXPECT_EQ("{'www.google.com' aliases=[] addrs=[1.2.3.4]}", ss.str());
 }
 
+// End-to-end delivery path for the writer's name truncation: ares_search()
+// (and ares_query()) hand the application a message re-encoded by
+// ares_dns_write(), not the original response bytes.  A hostile SRV answer
+// whose target name has an escape-heavy presentation form used to be
+// silently altered along the way -- the application callback ran with
+// ARES_SUCCESS and a target that is a different (truncated) name than the
+// one the server actually sent.  The label layout (50, 50, 27, 63) puts
+// the truncation point exactly at a label boundary so the truncated prefix
+// is a valid name.
+TEST_P(MockUDPChannelTest, EscapeHeavySrvTargetNotAlteredOnDelivery) {
+  std::vector<byte> reply = {
+    0x00, 0x00,             // qid
+    0x84, 0x00,             // response + AA, NoError
+    0x00, 0x01,             // 1 question
+    0x00, 0x01,             // 1 answer RRs
+    0x00, 0x00,             // 0 authority RRs
+    0x00, 0x00,             // 0 additional RRs
+    // Question: 1.2.3.4.5.6 SRV IN (name at offset 0x0c).  Digits carry no
+    // case, so the DNS 0x20 randomization in the query cannot make the
+    // fixed-case reply question mismatch and get the answer dropped.
+    0x01, '1', 0x01, '2', 0x01, '3', 0x01, '4', 0x01, '5', 0x01, '6',
+    0x00,
+    0x00, 0x21,             // type SRV
+    0x00, 0x01,             // class IN
+    // Answer
+    0xc0, 0x0c,             // owner -> question name
+    0x00, 0x21,             // type SRV
+    0x00, 0x01,             // class IN
+    0x00, 0x00, 0x00, 0x3c, // TTL 60
+    0x00, 0xc9,             // rdlength 201 = 6 + 4 + 190 + 1
+    0x00, 0x0a,             // priority 10
+    0x00, 0x14,             // weight 20
+    0x00, 0x1e,             // port 30
+  };
+  // SRV target: labels of 50, 50, 27 and 63 bytes of 0xAA, root-terminated
+  // (wire-legal; presentation form 4 * 190 + 3 = 763 characters).
+  const size_t lens[4] = {50, 50, 27, 63};
+  for (size_t n : lens) {
+    reply.push_back(static_cast<byte>(n));
+    for (size_t j = 0; j < n; j++) {
+      reply.push_back(0xAA);
+    }
+  }
+  reply.push_back(0x00);
+
+  ON_CALL(server_, OnRequest("1.2.3.4.5.6", T_SRV))
+    .WillByDefault(SetReplyData(&server_, reply));
+
+  SearchResult result;
+  ares_search(channel_, "1.2.3.4.5.6.", C_IN, T_SRV, SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+
+  // What the server actually sent, in presentation form.
+  std::string expected;
+  for (size_t i = 0; i < 4; i++) {
+    if (i != 0) {
+      expected += '.';
+    }
+    for (size_t j = 0; j < lens[i]; j++) {
+      expected += "\\170";
+    }
+  }
+
+  struct ares_srv_reply *srv = nullptr;
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_parse_srv_reply(result.data_.data(),
+                                 (int)result.data_.size(), &srv));
+  ASSERT_NE(nullptr, srv);
+  EXPECT_EQ(10, srv->priority);
+  EXPECT_EQ(20, srv->weight);
+  EXPECT_EQ(30, srv->port);
+  EXPECT_EQ(expected, std::string(srv->host));
+  ares_free_data(srv);
+}
+
 TEST_P(MockUDPChannelTest, UTF8BadName) {
   DNSPacket reply;
   reply.set_response().set_aa()

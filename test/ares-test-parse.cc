@@ -258,9 +258,10 @@ TEST_F(LibraryTest, ParseRejectsOverlongName) {
 
 TEST_F(LibraryTest, ParseRejectsOverlongNameViaPointers) {
   // The answer name is one 63-octet label followed by a compression pointer back
-  // to the question name (four 63-octet labels).  Expanded that is 5 x 63 label
-  // octets + 4 separators = 319 presentation octets (> 255), so the length has
-  // to accumulate across the pointer jump for this to be rejected.
+  // to the question name (three 63-octet labels and one 61-octet label, 255
+  // wire octets, so the question itself is accepted).  Expanded that is
+  // 313 payload + 5 length octets + root = 319 wire octets (> 255), so the
+  // length has to accumulate across the pointer jump for this to be rejected.
   std::vector<byte> data = {
     0x12, 0x34, 0x81, 0x80,
     0x00, 0x01,  // num questions
@@ -268,11 +269,12 @@ TEST_F(LibraryTest, ParseRejectsOverlongNameViaPointers) {
     0x00, 0x00,  // num authority RRs
     0x00, 0x00,  // num additional RRs
   };
-  // Question name: 4 x 63 label octets + 3 separators = 255 presentation octets,
-  // exactly the limit, so the question itself is accepted.
+  // Question name: labels 63, 63, 63, 61 = 250 payload + 4 length octets +
+  // root = 255 wire octets, exactly the limit, so the question is accepted.
+  const int qlens[] = {63, 63, 63, 61};
   for (int i = 0; i < 4; i++) {
-    data.push_back(63);
-    for (int j = 0; j < 63; j++) {
+    data.push_back(static_cast<byte>(qlens[i]));
+    for (int j = 0; j < qlens[i]; j++) {
       data.push_back('a');
     }
   }
@@ -349,15 +351,17 @@ TEST_F(LibraryTest, ParseRejectsPointerChain) {
 }
 
 TEST_F(LibraryTest, ParseAcceptsMaxLengthName) {
-  // Exactly 255 presentation octets: 4 x 63 = 252 + 3 separators = 255, which
-  // must still be accepted (the bound is "> 255", not ">= 255").
+  // Exactly 255 wire octets: labels 63, 63, 63, 61 = 250 payload + 4
+  // length octets + 1 root terminator, which must still be accepted (the
+  // bound is "> 255", not ">= 255").
   std::vector<byte> data = {
     0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
     0x00, 0x00, 0x01, 'a',  0x00, 0x00, 0x01, 0x00, 0x01,
   };
+  const int lens[] = {63, 63, 63, 61};
   for (int i = 0; i < 4; i++) {
-    data.push_back(63);
-    for (int j = 0; j < 63; j++) {
+    data.push_back(static_cast<byte>(lens[i]));
+    for (int j = 0; j < lens[i]; j++) {
       data.push_back('a');
     }
   }
@@ -370,6 +374,29 @@ TEST_F(LibraryTest, ParseAcceptsMaxLengthName) {
   EXPECT_EQ(ARES_SUCCESS, ares_dns_parse(data.data(), data.size(), 0, &dnsrec));
   EXPECT_NE(nullptr, dnsrec);
   ares_dns_record_destroy(dnsrec);
+
+  // One label-length octet more (labels 63, 63, 63, 62 = 251 payload +
+  // 4 + 1 = 256 wire octets) crosses the RFC 1035 limit and must be
+  // rejected.  This case used to be accepted when the length check counted
+  // presentation characters (label data plus separators) instead of wire
+  // octets, which was 2 octets looser than RFC 1035.
+  data.clear();
+  data = {
+    0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x00, 0x00, 0x01, 'a',  0x00, 0x00, 0x01, 0x00, 0x01,
+  };
+  const int lens2[] = {63, 63, 63, 62};
+  for (int i = 0; i < 4; i++) {
+    data.push_back(static_cast<byte>(lens2[i]));
+    for (int j = 0; j < lens2[i]; j++) {
+      data.push_back('a');
+    }
+  }
+  data.push_back(0x00);
+  data.insert(data.end(), tail.begin(), tail.end());
+  dnsrec = NULL;
+  EXPECT_EQ(ARES_EBADNAME, ares_dns_parse(data.data(), data.size(), 0, &dnsrec));
+  EXPECT_EQ(nullptr, dnsrec);
 }
 
 TEST_F(LibraryTest, ParseRejectsName256) {
@@ -551,6 +578,335 @@ TEST_F(LibraryTest, ParseSvcbRejectsCompressedTarget) {
   ares_dns_record_t *dnsrec = NULL;
   EXPECT_EQ(ARES_EBADNAME, ares_dns_parse(data, sizeof(data), 0, &dnsrec));
   EXPECT_EQ(nullptr, dnsrec);
+}
+
+// Build the presentation form of a wire-legal name whose labels consist
+// entirely of a single non-printable byte (0xAA), which the parser renders
+// as the 4-character escape "\170".  lens must obey 1..63 and the RFC 1035
+// wire limit sum(lens) + lens.size() + 1 <= 255 (payload + one length octet
+// per label + root); the presentation form is then 4 * sum(lens) +
+// lens.size() - 1 characters, at most 1003 for labels 63+63+63+61.
+static std::string EscapedHeavyName(const std::vector<size_t> &lens)
+{
+  std::string name;
+  for (size_t i = 0; i < lens.size(); i++) {
+    if (i != 0) {
+      name += '.';
+    }
+    for (size_t j = 0; j < lens[i]; j++) {
+      name += "\\170";
+    }
+  }
+  return name;
+}
+
+// Append the wire form of the same name (labels of lens[i] 0xAA octets,
+// root-terminated).
+static void AppendEscapedHeavyWireName(std::vector<byte> *data,
+                                       const std::vector<size_t> &lens)
+{
+  for (size_t n : lens) {
+    data->push_back(static_cast<byte>(n));
+    for (size_t j = 0; j < n; j++) {
+      data->push_back(0xAA);
+    }
+  }
+  data->push_back(0x00);
+}
+
+// A parsed, wire-legal name whose presentation form is longer than 511
+// characters must survive parse -> write -> parse unchanged.  The writer
+// used to copy names through a 512-byte buffer, silently truncating the
+// copy; for a compressible field like CNAME the write then failed outright
+// (ARES_EFORMERR from the compression bookkeeping).
+TEST_F(LibraryTest, WriteRoundTripEscapeHeavyCname)
+{
+  const std::vector<size_t> lens = {63, 63, 63, 61};  // presentation 1003
+  std::vector<byte>         data = {
+    0x12, 0x34,              // qid
+    0x84, 0x00,              // response + AA
+    0x00, 0x01,              // qdcount
+    0x00, 0x01,              // ancount
+    0x00, 0x00,              // nscount
+    0x00, 0x00,              // arcount
+    // Question: example.com A IN (name at offset 0x0c)
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+    0x00, 0x01, 0x00, 0x01,
+    // Answer: owner -> question name
+    0xc0, 0x0c,              // CNAME, IN
+    0x00, 0x05, 0x00, 0x01,  0x00, 0x00, 0x00, 0x3c,  // TTL 60
+  };
+  // rdlength: 4 label-length octets + 250 payload octets + root
+  data.push_back(0x00);
+  data.push_back(static_cast<byte>(4 + 250 + 1));
+  AppendEscapedHeavyWireName(&data, lens);
+
+  ares_dns_record_t *dnsrec = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_parse(data.data(), data.size(), 0, &dnsrec));
+  const ares_dns_rr_t *rr =
+    ares_dns_record_rr_get_const(dnsrec, ARES_SECTION_ANSWER, 0);
+  const std::string orig = ares_dns_rr_get_str(rr, ARES_RR_CNAME_CNAME);
+  ASSERT_EQ(EscapedHeavyName(lens), orig);
+
+  unsigned char *wire     = nullptr;
+  size_t         wire_len = 0;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec, &wire, &wire_len));
+
+  ares_dns_record_t *dnsrec2 = nullptr;
+  if (wire != nullptr) {
+    EXPECT_EQ(ARES_SUCCESS,
+              ares_dns_parse(wire, wire_len, 0, &dnsrec2));
+    const ares_dns_rr_t *rr2 =
+      ares_dns_record_rr_get_const(dnsrec2, ARES_SECTION_ANSWER, 0);
+    EXPECT_EQ(orig, ares_dns_rr_get_str(rr2, ARES_RR_CNAME_CNAME));
+  }
+  ares_free_string(wire);
+  ares_dns_record_destroy(dnsrec);
+  ares_dns_record_destroy(dnsrec2);
+}
+
+// Same round-trip through a non-compressible field (SVCB TargetName, RFC
+// 9460 forbids compression), driven entirely through the public API.  The
+// label layout puts the 512-byte truncation point exactly at the end of
+// label 3, so the pre-fix writer emitted the truncated prefix as a valid
+// name and returned ARES_SUCCESS -- silently altering the record.
+TEST_F(LibraryTest, WriteRoundTripEscapeHeavySvcbTargetAPI)
+{
+  const std::vector<size_t> lens = {50, 50, 27, 63};  // presentation 763
+  const std::string         target = EscapedHeavyName(lens);
+
+  ares_dns_record_t *dnsrec = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_create(
+                            &dnsrec, 0x1234, ARES_FLAG_QR | ARES_FLAG_AA,
+                            ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_query_add(
+                            dnsrec, "example.com", ARES_REC_TYPE_SVCB,
+                            ARES_CLASS_IN));
+  ares_dns_rr_t *rr = nullptr;
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_rr_add(&rr, dnsrec, ARES_SECTION_ANSWER,
+                                   "example.com", ARES_REC_TYPE_SVCB,
+                                   ARES_CLASS_IN, 60));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_rr_set_u16(rr, ARES_RR_SVCB_PRIORITY, 1));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_rr_set_str(rr, ARES_RR_SVCB_TARGET, target.c_str()));
+
+  unsigned char *wire     = nullptr;
+  size_t         wire_len = 0;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec, &wire, &wire_len));
+
+  ares_dns_record_t *dnsrec2 = nullptr;
+  if (wire != nullptr) {
+    EXPECT_EQ(ARES_SUCCESS, ares_dns_parse(wire, wire_len, 0, &dnsrec2));
+    const ares_dns_rr_t *rr2 =
+      ares_dns_record_rr_get_const(dnsrec2, ARES_SECTION_ANSWER, 0);
+    EXPECT_EQ(target, ares_dns_rr_get_str(rr2, ARES_RR_SVCB_TARGET));
+  }
+  ares_free_string(wire);
+  ares_dns_record_destroy(dnsrec);
+  ares_dns_record_destroy(dnsrec2);
+}
+
+// Boundary cases for the RFC 1035 255-wire-octet name limit, in escaped
+// presentation form.  The longest valid name is four labels of 63+63+63+61
+// bytes: 250 payload + 4 length octets + 1 root = 255 wire octets, which
+// renders as 4 * 250 + 3 = 1003 presentation characters and must round-trip
+// exactly through both a compressible field (CNAME rdata) and a
+// non-compressible field (SVCB target).  One payload byte more (labels
+// 63+63+63+63 = 257 wire octets, 1011 presentation characters) exceeds the
+// RFC limit and must be rejected on both the parse path and the write path.
+TEST_F(LibraryTest, WriteRoundTripMaxPresentationName)
+{
+  const std::vector<size_t> valid_lens   = {63, 63, 63, 61};  // 1003 chars
+  const std::vector<size_t> invalid_lens = {63, 63, 63, 63};  // 1011 chars
+  const std::string         valid_name   = EscapedHeavyName(valid_lens);
+  const std::string         invalid_name = EscapedHeavyName(invalid_lens);
+  ASSERT_EQ(1003u, valid_name.size());
+  ASSERT_EQ(1011u, invalid_name.size());
+
+  // --- compressible: CNAME rdata via wire parse, valid boundary ---
+  std::vector<byte> data = {
+    0x12, 0x34, 0x84, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+    0x00, 0x05, 0x00, 0x01,
+    0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c,
+  };
+  data.push_back((4 + 250 + 1) >> 8);   // rdlength 255 (4 length octets +
+  data.push_back((4 + 250 + 1) & 0xff); // 250 payload + root)
+  AppendEscapedHeavyWireName(&data, valid_lens);
+
+  ares_dns_record_t *dnsrec = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_parse(data.data(), data.size(), 0, &dnsrec));
+  unsigned char *wire     = nullptr;
+  size_t         wire_len = 0;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec, &wire, &wire_len));
+  ares_dns_record_t *dnsrec2 = nullptr;
+  if (wire != nullptr) {
+    EXPECT_EQ(ARES_SUCCESS, ares_dns_parse(wire, wire_len, 0, &dnsrec2));
+    const ares_dns_rr_t *rr2 =
+      ares_dns_record_rr_get_const(dnsrec2, ARES_SECTION_ANSWER, 0);
+    EXPECT_EQ(valid_name, ares_dns_rr_get_str(rr2, ARES_RR_CNAME_CNAME));
+  }
+  ares_free_string(wire);
+  ares_dns_record_destroy(dnsrec);
+  ares_dns_record_destroy(dnsrec2);
+
+  // --- non-compressible: SVCB target via the public API, valid boundary ---
+  ares_dns_record_t *dnsrec3 = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_create(
+                            &dnsrec3, 0x1234, ARES_FLAG_QR | ARES_FLAG_AA,
+                            ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_query_add(
+                            dnsrec3, "example.com", ARES_REC_TYPE_SVCB,
+                            ARES_CLASS_IN));
+  ares_dns_rr_t *rr = nullptr;
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_rr_add(&rr, dnsrec3, ARES_SECTION_ANSWER,
+                                   "example.com", ARES_REC_TYPE_SVCB,
+                                   ARES_CLASS_IN, 60));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_rr_set_u16(rr, ARES_RR_SVCB_PRIORITY, 1));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_rr_set_str(rr, ARES_RR_SVCB_TARGET, valid_name.c_str()));
+
+  wire     = nullptr;
+  wire_len = 0;
+  ares_dns_record_t *dnsrec4 = nullptr;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec3, &wire, &wire_len));
+  if (wire != nullptr) {
+    EXPECT_EQ(ARES_SUCCESS, ares_dns_parse(wire, wire_len, 0, &dnsrec4));
+    const ares_dns_rr_t *rr2 =
+      ares_dns_record_rr_get_const(dnsrec4, ARES_SECTION_ANSWER, 0);
+    EXPECT_EQ(valid_name, ares_dns_rr_get_str(rr2, ARES_RR_SVCB_TARGET));
+  }
+  ares_free_string(wire);
+  ares_dns_record_destroy(dnsrec3);
+  ares_dns_record_destroy(dnsrec4);
+
+  // --- invalid overlength: 257 wire octets rejected by the parser ---
+  std::vector<byte> over = {
+    0x12, 0x34, 0x84, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+    0x00, 0x05, 0x00, 0x01,
+    0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c,
+  };
+  over.push_back((4 + 252 + 1) >> 8);   // rdlength 257
+  over.push_back((4 + 252 + 1) & 0xff);
+  AppendEscapedHeavyWireName(&over, invalid_lens);
+  ares_dns_record_t *over_rec = nullptr;
+  EXPECT_EQ(ARES_EBADNAME,
+            ares_dns_parse(over.data(), over.size(), 0, &over_rec));
+  EXPECT_EQ(nullptr, over_rec);
+
+  // --- invalid overlength: rejected by the writer via the public API ---
+  ares_dns_record_t *over_dnsrec = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_create(
+                            &over_dnsrec, 0x1234, ARES_FLAG_QR | ARES_FLAG_AA,
+                            ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_query_add(
+                            over_dnsrec, "example.com", ARES_REC_TYPE_SVCB,
+                            ARES_CLASS_IN));
+  ares_dns_rr_t *over_rr = nullptr;
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_rr_add(&over_rr, over_dnsrec, ARES_SECTION_ANSWER,
+                                   "example.com", ARES_REC_TYPE_SVCB,
+                                   ARES_CLASS_IN, 60));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_rr_set_u16(over_rr, ARES_RR_SVCB_PRIORITY, 1));
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_rr_set_str(over_rr, ARES_RR_SVCB_TARGET,
+                                invalid_name.c_str()));
+  unsigned char *over_wire    = nullptr;
+  size_t         over_wire_len = 0;
+  EXPECT_EQ(ARES_EBADNAME,
+            ares_dns_write(over_dnsrec, &over_wire, &over_wire_len));
+  ares_free_string(over_wire);
+  ares_dns_record_destroy(over_dnsrec);
+
+  // --- beyond the writer's buffer: a 1029-character presentation form can
+  // only be a wire-invalid name, and must be rejected by the up-front guard
+  // instead of being copied truncated ---
+  std::string huge;
+  for (size_t i = 0; i < 206; i++) {
+    if (i != 0) {
+      huge += '.';
+    }
+    huge += "\\170";
+  }
+  ASSERT_EQ(1029u, huge.size());
+  ares_dns_record_t *huge_dnsrec = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_record_create(
+                            &huge_dnsrec, 0x1234, ARES_FLAG_QR | ARES_FLAG_AA,
+                            ARES_OPCODE_QUERY, ARES_RCODE_NOERROR));
+  ares_dns_rr_t *huge_rr = nullptr;
+  ASSERT_EQ(ARES_SUCCESS,
+            ares_dns_record_rr_add(&huge_rr, huge_dnsrec, ARES_SECTION_ANSWER,
+                                   "example.com", ARES_REC_TYPE_SVCB,
+                                   ARES_CLASS_IN, 60));
+  ares_dns_rr_set_u16(huge_rr, ARES_RR_SVCB_PRIORITY, 1);
+  ares_dns_rr_set_str(huge_rr, ARES_RR_SVCB_TARGET, huge.c_str());
+  unsigned char *huge_wire = nullptr;
+  size_t         huge_len  = 0;
+  EXPECT_EQ(ARES_EBADNAME,
+            ares_dns_write(huge_dnsrec, &huge_wire, &huge_len));
+  ares_free_string(huge_wire);
+  ares_dns_record_destroy(huge_dnsrec);
+}
+
+// An escape-heavy name must also remain a compression point.  Question and
+// owner names are hostname-validated on write, so escaped label bytes can
+// only appear in rdata name fields; two CNAME records carrying the same
+// long rdata name must re-encode the second occurrence as a pointer to the
+// first, and both must parse back to the same presentation string.
+TEST_F(LibraryTest, WriteRoundTripCompressesEscapeHeavyName)
+{
+  const std::vector<size_t> lens = {63, 63, 63, 61};
+  std::vector<byte>         data = {
+    0x12, 0x34, 0x84, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+    // Question: example.com A IN (name at offset 0x0c)
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+    0x00, 0x01, 0x00, 0x01,
+  };
+  // RR1: owner -> question name, CNAME, rdata = the full escaped name.
+  // Offsets: 12 (header) + 13 (qname) + 4 (qtype/qclass) = 29; owner 2 +
+  // type/class 4 + ttl 4 + rdlength 2 = 12, so the rdata name lands at 41.
+  data.insert(data.end(),
+              {0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c});
+  data.push_back((4 + 250 + 1) >> 8);
+  data.push_back((4 + 250 + 1) & 0xff);
+  AppendEscapedHeavyWireName(&data, lens);
+  // RR2: owner -> question name, CNAME, rdata = pointer to offset 41.
+  data.insert(data.end(),
+              {0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c,
+               0x00, 0x02, 0xc0, 41});
+
+  ares_dns_record_t *dnsrec = nullptr;
+  ASSERT_EQ(ARES_SUCCESS, ares_dns_parse(data.data(), data.size(), 0, &dnsrec));
+  const std::string orig = EscapedHeavyName(lens);
+  const ares_dns_rr_t *rr1 =
+    ares_dns_record_rr_get_const(dnsrec, ARES_SECTION_ANSWER, 0);
+  ASSERT_EQ(orig, ares_dns_rr_get_str(rr1, ARES_RR_CNAME_CNAME));
+
+  unsigned char *wire     = nullptr;
+  size_t         wire_len = 0;
+  EXPECT_EQ(ARES_SUCCESS, ares_dns_write(dnsrec, &wire, &wire_len));
+  if (wire != nullptr) {
+    // The second rdata name must be compressed: both label sequences are
+    // 255 octets, so an uncompressed message would exceed 500 bytes.
+    EXPECT_LT(wire_len, 500u);
+    ares_dns_record_t *dnsrec2 = nullptr;
+    EXPECT_EQ(ARES_SUCCESS, ares_dns_parse(wire, wire_len, 0, &dnsrec2));
+    const ares_dns_rr_t *wrr1 =
+      ares_dns_record_rr_get_const(dnsrec2, ARES_SECTION_ANSWER, 0);
+    const ares_dns_rr_t *wrr2 =
+      ares_dns_record_rr_get_const(dnsrec2, ARES_SECTION_ANSWER, 1);
+    EXPECT_EQ(orig, ares_dns_rr_get_str(wrr1, ARES_RR_CNAME_CNAME));
+    EXPECT_EQ(orig, ares_dns_rr_get_str(wrr2, ARES_RR_CNAME_CNAME));
+    ares_dns_record_destroy(dnsrec2);
+  }
+  ares_free_string(wire);
+  ares_dns_record_destroy(dnsrec);
 }
 
 TEST_F(DefaultChannelTest, ParseNameserverUriLinkLocalUninitialized) {
