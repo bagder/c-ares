@@ -111,15 +111,15 @@ int ares_parse_caa_reply(const unsigned char *abuf, int alen_int,
       goto done;              /* LCOV_EXCL_LINE: DefensiveCoding */
     }
 
-    /* Wants NULL termination for some reason */
-    caa_curr->value = ares_malloc(ptr_len + 1);
+    /* Wants NULL termination for some reason.  Zeroed so the copy below ends
+     * in a NUL terminator */
+    caa_curr->value = ares_malloc_zero(ptr_len + 1);
     if (caa_curr->value == NULL) {
       status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
       goto done;            /* LCOV_EXCL_LINE: OutOfMemory */
     }
     memcpy(caa_curr->value, ptr, ptr_len);
-    caa_curr->value[ptr_len] = 0;
-    caa_curr->length         = ptr_len;
+    caa_curr->length = ptr_len;
   }
 
 done:

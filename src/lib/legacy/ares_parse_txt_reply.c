@@ -98,14 +98,14 @@ static int ares_parse_txt_reply_int(const unsigned char *abuf, size_t alen,
 
       ptr = ares_dns_rr_get_abin(rr, ARES_RR_TXT_DATA, j, &ptr_len);
 
-      txt_curr->txt = ares_malloc(ptr_len + 1);
+      /* Zeroed so the copy below ends in a NUL terminator */
+      txt_curr->txt = ares_malloc_zero(ptr_len + 1);
       if (txt_curr->txt == NULL) {
         status = ARES_ENOMEM; /* LCOV_EXCL_LINE: OutOfMemory */
         goto done;            /* LCOV_EXCL_LINE: OutOfMemory */
       }
       memcpy(txt_curr->txt, ptr, ptr_len);
-      txt_curr->txt[ptr_len] = 0;
-      txt_curr->length       = ptr_len;
+      txt_curr->length = ptr_len;
     }
   }
 
