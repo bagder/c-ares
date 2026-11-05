@@ -26,11 +26,14 @@
 #ifndef __ARES_RAND_H
 #define __ARES_RAND_H
 
-struct ares_rand_state;
-typedef struct ares_rand_state ares_rand_state;
+#include "ares_rand_state.h"
 
-ares_rand_state *ares_init_rand_state(void);
-void ares_destroy_rand_state(ares_rand_state *state);
+/*! Fill buf with len random bytes from the state.
+ *
+ *  \param[in]  state  Random state from ares_init_rand_state_skip()
+ *  \param[out] buf    Buffer to fill
+ *  \param[in]  len    Number of bytes to write
+ */
 void ares_rand_bytes(ares_rand_state *state, unsigned char *buf, size_t len);
 
 #endif

@@ -794,6 +794,9 @@ ares_status_t ares_cookie_validate(ares_query_t            *query,
                                    ares_conn_t *conn, const ares_timeval_t *now,
                                    ares_array_t **requeue);
 
+int ares_init_options_int(ares_channel_t           **channelptr,
+                          const struct ares_options *options, int optmask,
+                          unsigned int rand_skip);
 ares_status_t ares_channel_threading_init(ares_channel_t *channel);
 void ares_channel_threading_destroy(ares_channel_t *channel);
 void ares_channel_lock(const ares_channel_t *channel);

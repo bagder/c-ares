@@ -120,6 +120,7 @@ HHEADERS = ares_android.h			\
   include/ares_llist.h			\
   include/ares_mem.h			\
   include/ares_punycode.h		\
+  include/ares_rand_state.h		\
   include/ares_str.h			\
   record/ares_dns_multistring.h		\
   record/ares_dns_private.h		\
